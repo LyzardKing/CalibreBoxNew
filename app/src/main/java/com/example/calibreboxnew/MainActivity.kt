@@ -44,7 +44,9 @@ import com.example.calibreboxnew.db.GetAllBookDetails
 import com.example.calibreboxnew.dropbox.DropboxHelper
 import com.example.calibreboxnew.ui.BookDetailsDialog
 import com.example.calibreboxnew.ui.FileBrowser
+import com.example.calibreboxnew.ui.SearchBar
 import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
+import com.example.calibreboxnew.utils.normalizeForSearch // <-- IMPORT NORMALIZATION FUNCTION
 import java.io.ByteArrayOutputStream
 
 class MainActivity : ComponentActivity() {
@@ -101,7 +103,7 @@ class MainActivity : ComponentActivity() {
         // Create a local, immutable copy of the state variable
         val currentPath = calibreLibraryPath
 
-        val bookState by produceState<List<GetAllBookDetails>>(initialValue = emptyList(), currentPath) {
+        val allBooks by produceState<List<GetAllBookDetails>>(initialValue = emptyList(), currentPath) {
             // Use the local copy for the null check and subsequent operations
             if (currentPath != null) {
                 try {
@@ -114,8 +116,26 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        LaunchedEffect(bookState.isNotEmpty()) {
-            if (bookState.isNotEmpty()) {
+        // --- NEW: State for search query ---
+        var searchQuery by remember { mutableStateOf("") }
+
+        // --- NEW: Derived state for filtered books ---
+        val filteredBooks = remember(searchQuery, allBooks) {
+            if (searchQuery.isBlank()) {
+                allBooks
+            } else {
+                val normalizedQuery = searchQuery.normalizeForSearch()
+                allBooks.filter { book ->
+                    // Search in title and authors
+                    val matchesTitle = book.title.normalizeForSearch().contains(normalizedQuery)
+                    val matchesAuthors = book.authors?.normalizeForSearch()?.contains(normalizedQuery) == true
+                    matchesTitle || matchesAuthors
+                }
+            }
+        }
+
+        LaunchedEffect(allBooks.isNotEmpty()) {
+            if (allBooks.isNotEmpty()) {
                 Log.d("MainScreen", "Book list loaded. Enqueueing background cover caching worker.")
                 val cacheWorkRequest = OneTimeWorkRequestBuilder<CoverCacheWorker>().build()
                 WorkManager.getInstance(context).enqueue(cacheWorkRequest)
@@ -135,10 +155,14 @@ class MainActivity : ComponentActivity() {
                         calibreLibraryPath = path
                     })
                 } else {
-                    if (bookState.isEmpty()) {
+                    // --- NEW: Add the SearchBar ---
+                    SearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
+
+                    if (allBooks.isEmpty()) {
                         Text("Loading books...")
                     } else {
-                        BookGridScreen(books = bookState, calibreLibraryPath = currentPath)
+                        // --- Use the filtered list ---
+                        BookGridScreen(books = filteredBooks, calibreLibraryPath = currentPath)
                     }
                 }
             } else {
@@ -154,15 +178,25 @@ class MainActivity : ComponentActivity() {
     fun BookGridScreen(books: List<GetAllBookDetails>, calibreLibraryPath: String) {
         var selectedBook by remember { mutableStateOf<GetAllBookDetails?>(null) }
 
+        // --- NEW: Add a message for no search results ---
+        if (books.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No books found matching your search.")
+            }
+            return
+        }
+
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 120.dp),
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(books) { book ->
-                // FIX: Pass the onBookClicked lambda to the item
+            items(books, key = { it.id }) { book -> // Use a key for better performance
                 BookCoverItem(
                     book = book,
                     calibreLibraryPath = calibreLibraryPath,
@@ -173,7 +207,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // FIX: Display the dialog ONLY if a book is selected
         selectedBook?.let { book ->
             BookDetailsDialog(
                 book = book,
