@@ -1,0 +1,8 @@
+CREATE TABLE books (
+    id INTEGER NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    path TEXT NOT NULL,
+    has_cover INTEGER DEFAULT 0
+);
+
+selectAll: SELECT * FROM books;
