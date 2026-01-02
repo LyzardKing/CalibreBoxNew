@@ -47,9 +47,6 @@ import com.example.calibreboxnew.ui.FileBrowser
 import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
 import java.io.ByteArrayOutputStream
 
-// Replace with your Dropbox App Key
-private const val APP_KEY = "z9ga59p8xyvp2xz"
-
 class MainActivity : ComponentActivity() {
 
     private var resumeCounter by mutableStateOf(0)
@@ -89,7 +86,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loginToDropbox() {
-        DropboxHelper.login(this, APP_KEY)
+        DropboxHelper.login(this)
     }
 
     @Composable

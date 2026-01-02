@@ -1,3 +1,12 @@
+import java.util.Properties
+
+// Top of build.gradle (Module: app)
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -24,6 +33,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // This makes the key available in your Manifest
+        manifestPlaceholders["dropboxAppKey"] = "db-${localProperties.getProperty("dropbox.key")}"
+
+        // This makes the key available in your Kotlin code as BuildConfig.DROPBOX_APP_KEY
+        buildConfigField("String", "DROPBOX_APP_KEY", "\"${localProperties.getProperty("dropbox.key")}\"")
+
     }
 
     buildTypes {
@@ -44,6 +59,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -68,7 +84,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    implementation("androidx.compose.material:material-icons-extended-android:1.6.8")
+    implementation(libs.androidx.compose.material.icons.extended.android)
     implementation(libs.androidx.work.runtime.ktx)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
