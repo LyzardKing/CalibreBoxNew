@@ -1,3 +1,7 @@
+-- In app/src/main/sqldelight/com/example/calibreboxnew/db/Book.sq
+
+-- Table definitions provide context for SQLDelight to validate queries.
+-- These should match your actual database schema.
 CREATE TABLE books (
     id INTEGER NOT NULL PRIMARY KEY,
     title TEXT NOT NULL,
@@ -5,4 +9,45 @@ CREATE TABLE books (
     has_cover INTEGER DEFAULT 0
 );
 
-selectAll: SELECT * FROM books;
+CREATE TABLE authors (
+    id INTEGER NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE books_authors_link (
+    book INTEGER NOT NULL,
+    author INTEGER NOT NULL,
+    FOREIGN KEY(book) REFERENCES books(id),
+    FOREIGN KEY(author) REFERENCES authors(id)
+);
+
+CREATE TABLE comments (
+    id INTEGER NOT NULL PRIMARY KEY, -- It's good practice for tables to have a primary key
+    book INTEGER,
+    text TEXT NOT NULL,
+    FOREIGN KEY(book) REFERENCES books(id)
+);
+
+
+-- This single, powerful query fetches all necessary details for the book list screen.
+-- It correctly handles multiple authors and ensures books without authors or comments are not excluded.
+getAllBookDetails:
+SELECT
+    b.id,
+    b.title,
+    b.path,
+    b.has_cover,
+    c.text AS comment,
+    GROUP_CONCAT(a.name, ', ') AS authors
+FROM
+    books AS b
+LEFT JOIN
+    books_authors_link AS bal ON b.id = bal.book
+LEFT JOIN
+    authors AS a ON bal.author = a.id
+LEFT JOIN
+    comments AS c ON b.id = c.book
+GROUP BY
+    b.id
+ORDER BY
+    b.title;

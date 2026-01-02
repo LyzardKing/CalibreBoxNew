@@ -4,48 +4,47 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.vector.path
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.isEmpty
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.calibreboxnew.db.Books
-import com.example.calibreboxnew.db.DatabaseHelper
-import com.example.calibreboxnew.dropbox.DropboxHelper
-import com.example.calibreboxnew.ui.FileBrowser
-import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.dropbox.core.android.Auth
+import com.example.calibreboxnew.db.DatabaseHelper
+import com.example.calibreboxnew.db.GetAllBookDetails
+import com.example.calibreboxnew.dropbox.DropboxHelper
+import com.example.calibreboxnew.ui.BookDetailsDialog
+import com.example.calibreboxnew.ui.FileBrowser
+import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
 import java.io.ByteArrayOutputStream
 
 // Replace with your Dropbox App Key
@@ -69,18 +68,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-
-        // --- THIS IS THE CRITICAL FIX FOR LOGIN FLOW ---
-
         // 1. Check if we are returning from the Dropbox login activity
         val newAuthToken = Auth.getOAuth2Token()
         if (newAuthToken != null) {
-            // If we have a new token, save it immediately
             DropboxHelper.saveAccessToken(this, newAuthToken)
             Log.d("MainActivity", "New Dropbox token received and saved.")
         }
 
-        // 2. Try to load any existing token (either old or the new one we just saved)
+        // 2. Try to load any existing token
         val existingToken = DropboxHelper.getAccessToken(this)
 
         // 3. Initialize the client if we have a token and the client isn't already running
@@ -106,15 +101,18 @@ class MainActivity : ComponentActivity() {
             mutableStateOf(SettingsHelper.getCalibreLibraryPath(context))
         }
 
-        val bookState by produceState<List<Books>>(initialValue = emptyList(), calibreLibraryPath) {
-            if (calibreLibraryPath != null) {
+        // Create a local, immutable copy of the state variable
+        val currentPath = calibreLibraryPath
+
+        val bookState by produceState<List<GetAllBookDetails>>(initialValue = emptyList(), currentPath) {
+            // Use the local copy for the null check and subsequent operations
+            if (currentPath != null) {
                 try {
-                    DatabaseHelper.init(context, calibreLibraryPath!!)
+                    DatabaseHelper.init(context, currentPath)
                     value = DatabaseHelper.getBooks()
                 } catch (e: Exception) {
-                    // Handle exceptions, e.g., log them or show an error message
-                    e.printStackTrace()
-                    value = emptyList() // Ensure state is updated on error
+                    Log.e("MainScreen", "Error loading books", e)
+                    value = emptyList()
                 }
             }
         }
@@ -133,18 +131,17 @@ class MainActivity : ComponentActivity() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (isLoggedIn) {
-                if (calibreLibraryPath == null) {
+                // Also use the local copy here for consistency
+                if (currentPath == null) {
                     FileBrowser(onFolderSelected = { path ->
                         SettingsHelper.saveCalibreLibraryPath(context, path)
                         calibreLibraryPath = path
                     })
                 } else {
-                    // Now, we just check the state produced above.
                     if (bookState.isEmpty()) {
-                        // You could show a more specific loading indicator here if you add a status to the state
-                        Text("Loading books or library is empty...")
+                        Text("Loading books...")
                     } else {
-                        BookGridScreen(books = bookState, calibreLibraryPath = calibreLibraryPath!!)
+                        BookGridScreen(books = bookState, calibreLibraryPath = currentPath)
                     }
                 }
             } else {
@@ -155,76 +152,118 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
     @Composable
-    fun BookGridScreen(books: List<Books>, calibreLibraryPath: String) {
+    fun BookGridScreen(books: List<GetAllBookDetails>, calibreLibraryPath: String) {
+        var selectedBook by remember { mutableStateOf<GetAllBookDetails?>(null) }
+
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 128.dp),
-            modifier = Modifier.fillMaxSize()
+            columns = GridCells.Adaptive(minSize = 120.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(books) { book ->
-                BookCoverItem(book = book, calibreLibraryPath = calibreLibraryPath)
+                // FIX: Pass the onBookClicked lambda to the item
+                BookCoverItem(
+                    book = book,
+                    calibreLibraryPath = calibreLibraryPath,
+                    onBookClicked = {
+                        selectedBook = it
+                    }
+                )
             }
+        }
+
+        // FIX: Display the dialog ONLY if a book is selected
+        selectedBook?.let { book ->
+            BookDetailsDialog(
+                book = book,
+                onDismissRequest = {
+                    selectedBook = null
+                }
+            )
         }
     }
 
     @Composable
-    fun BookCoverItem(book: Books, calibreLibraryPath: String) {
+    fun BookCoverItem(
+        book: GetAllBookDetails,
+        calibreLibraryPath: String,
+        onBookClicked: (GetAllBookDetails) -> Unit // The click handler parameter
+    ) {
         var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-        var context = LocalContext.current
+        val context = LocalContext.current
 
         LaunchedEffect(book.id) {
             if (book.has_cover == 1L) {
-                // --- CACHING LOGIC ---
-                // 1. Try to load from cache first
                 val cachedCover = CoverCacheHelper.getCover(context, book.id)
                 if (cachedCover != null) {
                     imageBitmap = cachedCover.asImageBitmap()
                 } else {
-                    // 2. If not in cache, download from Dropbox
                     val coverPath = "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace("//", "/")
                     Log.d("BookCoverItem", "Cache miss for book ID ${book.id}. Fetching from: $coverPath")
-
                     try {
                         val outputStream = ByteArrayOutputStream()
                         DropboxHelper.downloadFile(coverPath, outputStream)
                         val imageBytes = outputStream.toByteArray()
-
                         if (imageBytes.isNotEmpty()) {
                             val downloadedBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                             if (downloadedBitmap != null) {
-                                // 3. Save the downloaded cover to cache for next time
                                 CoverCacheHelper.saveCover(context, book.id, downloadedBitmap)
                                 imageBitmap = downloadedBitmap.asImageBitmap()
                             }
                         }
-                    } catch(e: Exception) {
+                    } catch (e: Exception) {
                         Log.e("BookCoverItem", "Failed to load cover for '${book.title}'", e)
                     }
                 }
-                // --- END OF CACHING LOGIC ---
             }
         }
 
         Column(
-            modifier = Modifier.padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onBookClicked(book) } // Make the whole item clickable
+                .padding(vertical = 4.dp)
         ) {
-            Box(
-                modifier = Modifier.aspectRatio(0.7f),
-                contentAlignment = Alignment.Center
+            Card(
+                modifier = Modifier
+                    .width(120.dp)
+                    .height(180.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
-                if (imageBitmap != null) {
-                    Image(
-                        bitmap = imageBitmap!!,
-                        contentDescription = book.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(Icons.Default.Book, contentDescription = book.title)
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (imageBitmap != null) {
+                        Image(
+                            bitmap = imageBitmap!!,
+                            contentDescription = book.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        // Placeholder for books without a cover or while loading
+                        Icon(
+                            imageVector = Icons.Default.Book,
+                            contentDescription = "No cover available",
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                 }
             }
-            Text(text = book.title, maxLines = 2)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
         }
     }
 
