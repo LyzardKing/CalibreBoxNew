@@ -6,8 +6,15 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import androidx.core.graphics.scale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object CoverCacheHelper {
+
+    private const val THUMBNAIL_WIDTH = 120 // A small width for the thumbnail
+    //private const val FULL_RES_QUALITY = 90
+    private const val THUMBNAIL_QUALITY = 60
 
     private fun getCacheDir(context: Context): File {
         // Create a specific subdirectory for covers to keep things organized
@@ -24,11 +31,19 @@ object CoverCacheHelper {
         return File(getCacheDir(context), "$bookId.jpg")
     }
 
-    fun saveCover(context: Context, bookId: Long, bitmap: Bitmap) {
+    suspend fun saveCover(context: Context, bookId: Long, bitmap: Bitmap) {
         val file = getCoverFile(context, bookId)
         try {
+            // Calculate the height to maintain aspect ratio
+            // val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
+            // val thumbnailHeight = (THUMBNAIL_WIDTH * aspectRatio).toInt()
+
+            // Create a scaled-down version of the bitmap
+            // val thumbnailBitmap = bitmap.scale(THUMBNAIL_WIDTH, thumbnailHeight)
+
             FileOutputStream(file).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                // thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_QUALITY, out)
             }
             Log.d("CoverCacheHelper", "Saved cover for book ID $bookId to cache.")
         } catch (e: Exception) {
@@ -36,18 +51,25 @@ object CoverCacheHelper {
         }
     }
 
-    fun getCover(context: Context, bookId: Long): Bitmap? {
+    suspend fun getCover(context: Context, bookId: Long): Bitmap? {
         val file = getCoverFile(context, bookId)
+        return decodeBitmapFromFile(file, "full-res cover for book ID $bookId")
+    }
+
+    private suspend fun decodeBitmapFromFile(file: File, logIdentifier: String): Bitmap? =
+        withContext(Dispatchers.IO) {
         if (file.exists() && file.length() > 0) {
-            return try {
+            try {
+                // This call is now safely on the IO dispatcher
                 val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-                Log.d("CoverCacheHelper", "Loaded cover for book ID $bookId from cache.")
+                Log.d("CoverCacheHelper", "Loaded $logIdentifier from cache.")
                 bitmap
             } catch (e: Exception) {
-                Log.e("CoverCacheHelper", "Error decoding cached cover for book ID $bookId", e)
+                Log.e("CoverCacheHelper", "Error decoding cached $logIdentifier", e)
                 null
             }
+        } else {
+            null // Not in cache
         }
-        return null // Not in cache
     }
 }

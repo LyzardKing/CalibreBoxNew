@@ -6,7 +6,6 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.vector.path
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
@@ -20,7 +19,6 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -46,7 +44,9 @@ import com.example.calibreboxnew.ui.BookDetailsDialog
 import com.example.calibreboxnew.ui.FileBrowser
 import com.example.calibreboxnew.ui.SearchBar
 import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
-import com.example.calibreboxnew.utils.normalizeForSearch // <-- IMPORT NORMALIZATION FUNCTION
+import com.example.calibreboxnew.utils.normalizeForSearch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
 class MainActivity : ComponentActivity() {
@@ -239,7 +239,9 @@ class MainActivity : ComponentActivity() {
                         DropboxHelper.downloadFile(coverPath, outputStream)
                         val imageBytes = outputStream.toByteArray()
                         if (imageBytes.isNotEmpty()) {
-                            val downloadedBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                            val downloadedBitmap = withContext(Dispatchers.IO) {
+                                BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                            }
                             if (downloadedBitmap != null) {
                                 CoverCacheHelper.saveCover(context, book.id, downloadedBitmap)
                                 imageBitmap = downloadedBitmap.asImageBitmap()
