@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
@@ -65,7 +67,7 @@ fun FileBrowser(
                 IconButton(onClick = {
                     currentPath = currentPath.substringBeforeLast("/", "")
                 }) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             }
             Text(text = currentPath.ifEmpty { "/" }, style = MaterialTheme.typography.headlineSmall)
@@ -93,7 +95,7 @@ fun FileBrowser(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = if (it is FolderMetadata) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                        imageVector = if (it is FolderMetadata) Icons.Default.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
                         contentDescription = null,
                         modifier = Modifier.size(24.dp)
                     )

@@ -2,6 +2,7 @@ package com.example.calibreboxnew
 
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -42,6 +43,9 @@ import com.example.calibreboxnew.db.DatabaseHelper
 import com.example.calibreboxnew.dropbox.DropboxHelper
 import com.example.calibreboxnew.ui.FileBrowser
 import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.dropbox.core.android.Auth
 import java.io.ByteArrayOutputStream
 
 // Replace with your Dropbox App Key
@@ -65,10 +69,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        val accessToken = DropboxHelper.getAccessToken()
-        if (accessToken != null && DropboxHelper.getClient() == null) {
-            DropboxHelper.init(accessToken)
+
+        // --- THIS IS THE CRITICAL FIX FOR LOGIN FLOW ---
+
+        // 1. Check if we are returning from the Dropbox login activity
+        val newAuthToken = Auth.getOAuth2Token()
+        if (newAuthToken != null) {
+            // If we have a new token, save it immediately
+            DropboxHelper.saveAccessToken(this, newAuthToken)
+            Log.d("MainActivity", "New Dropbox token received and saved.")
         }
+
+        // 2. Try to load any existing token (either old or the new one we just saved)
+        val existingToken = DropboxHelper.getAccessToken(this)
+
+        // 3. Initialize the client if we have a token and the client isn't already running
+        if (existingToken != null && DropboxHelper.getClient() == null) {
+            Log.d("MainActivity", "Initializing Dropbox client from stored token.")
+            DropboxHelper.init(existingToken)
+        }
+
+        // This triggers a recomposition to update the UI state
         resumeCounter++
     }
 
@@ -79,10 +100,12 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MainScreen(modifier: Modifier = Modifier) {
         var isLoggedIn by remember(resumeCounter) { mutableStateOf(DropboxHelper.getClient() != null) }
-        var calibreLibraryPath by remember { mutableStateOf<String?>(null) }
         val context = LocalContext.current
 
-        // --- FIX IS HERE: Use produceState for cleaner async loading ---
+        var calibreLibraryPath by remember {
+            mutableStateOf(SettingsHelper.getCalibreLibraryPath(context))
+        }
+
         val bookState by produceState<List<Books>>(initialValue = emptyList(), calibreLibraryPath) {
             if (calibreLibraryPath != null) {
                 try {
@@ -95,7 +118,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        // --- END OF FIX ---
+
+        LaunchedEffect(bookState.isNotEmpty()) {
+            if (bookState.isNotEmpty()) {
+                Log.d("MainScreen", "Book list loaded. Enqueueing background cover caching worker.")
+                val cacheWorkRequest = OneTimeWorkRequestBuilder<CoverCacheWorker>().build()
+                WorkManager.getInstance(context).enqueue(cacheWorkRequest)
+            }
+        }
 
         Column(
             modifier = modifier.fillMaxSize(),
@@ -105,6 +135,7 @@ class MainActivity : ComponentActivity() {
             if (isLoggedIn) {
                 if (calibreLibraryPath == null) {
                     FileBrowser(onFolderSelected = { path ->
+                        SettingsHelper.saveCalibreLibraryPath(context, path)
                         calibreLibraryPath = path
                     })
                 } else {
@@ -139,16 +170,38 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun BookCoverItem(book: Books, calibreLibraryPath: String) {
         var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+        var context = LocalContext.current
 
         LaunchedEffect(book.id) {
-            if (book.has_cover != 0L) {
-                val coverPath = "$calibreLibraryPath/${book.path}/cover.jpg"
-                val outputStream = ByteArrayOutputStream()
-                DropboxHelper.downloadFile(coverPath, outputStream)
-                val imageBytes = outputStream.toByteArray()
-                if (imageBytes.isNotEmpty()) {
-                    imageBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size).asImageBitmap()
+            if (book.has_cover == 1L) {
+                // --- CACHING LOGIC ---
+                // 1. Try to load from cache first
+                val cachedCover = CoverCacheHelper.getCover(context, book.id)
+                if (cachedCover != null) {
+                    imageBitmap = cachedCover.asImageBitmap()
+                } else {
+                    // 2. If not in cache, download from Dropbox
+                    val coverPath = "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace("//", "/")
+                    Log.d("BookCoverItem", "Cache miss for book ID ${book.id}. Fetching from: $coverPath")
+
+                    try {
+                        val outputStream = ByteArrayOutputStream()
+                        DropboxHelper.downloadFile(coverPath, outputStream)
+                        val imageBytes = outputStream.toByteArray()
+
+                        if (imageBytes.isNotEmpty()) {
+                            val downloadedBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                            if (downloadedBitmap != null) {
+                                // 3. Save the downloaded cover to cache for next time
+                                CoverCacheHelper.saveCover(context, book.id, downloadedBitmap)
+                                imageBitmap = downloadedBitmap.asImageBitmap()
+                            }
+                        }
+                    } catch(e: Exception) {
+                        Log.e("BookCoverItem", "Failed to load cover for '${book.title}'", e)
+                    }
                 }
+                // --- END OF CACHING LOGIC ---
             }
         }
 
