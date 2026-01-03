@@ -62,8 +62,14 @@ object DatabaseHelper {
     }
 
     suspend fun reDownloadDatabase(context: Context, calibreLibraryPath: String) {
+        Log.d("DatabaseHelper", "Re-downloading database.")
+        clearDatabase(context)
+        // Re-initialize the database, which will trigger a new download
+        init(context, calibreLibraryPath)
+    }
+
+    suspend fun clearDatabase(context: Context) {
         withContext(Dispatchers.IO) {
-            Log.d("DatabaseHelper", "Re-downloading database.")
             // Close the existing database connection if it's open
             driver?.close()
             driver = null
@@ -79,8 +85,6 @@ object DatabaseHelper {
                 }
             }
         }
-        // Re-initialize the database, which will trigger a new download
-        init(context, calibreLibraryPath)
     }
 
     fun getBooks(): List<GetAllBookDetails> {

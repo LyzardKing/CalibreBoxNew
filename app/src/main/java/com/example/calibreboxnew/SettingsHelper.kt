@@ -24,4 +24,9 @@ object SettingsHelper {
         Log.d("SettingsHelper", "Loaded Calibre library path: $path")
         return path
     }
+
+    fun deleteCalibreLibraryPath(context: Context) {
+        getPrefs(context).edit { remove(KEY_CALIBRE_PATH) }
+        Log.d("SettingsHelper", "Deleted Calibre library path")
+    }
 }

@@ -56,7 +56,7 @@ class CoverCacheWorker(
 
             books.forEach { book ->
                 // Check if the book has a cover and if it's NOT already in the cache
-                if (book.has_cover == 1L && CoverCacheHelper.getCover(context, book.id) == null) {
+                if (book.has_cover == true && CoverCacheHelper.getCover(context, book.id) == null) {
                     try {
                         val coverPath =
                             "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace(

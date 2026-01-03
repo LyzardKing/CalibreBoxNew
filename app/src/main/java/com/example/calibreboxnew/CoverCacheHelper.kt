@@ -21,6 +21,18 @@ object CoverCacheHelper {
         return cacheDir
     }
 
+    fun clearCache(context: Context) {
+        val cacheDir = File(context.cacheDir, "covers")
+        if (cacheDir.exists()) {
+            try {
+                cacheDir.deleteRecursively()
+                Log.d("CoverCacheHelper", "Cleared cover cache at: ${cacheDir.absolutePath}")
+            } catch (e: Exception) {
+                Log.e("CoverCacheHelper", "Failed to clear cover cache", e)
+            }
+        }
+    }
+
     private fun getCoverFile(context: Context, bookId: Long): File {
         // Use the book's unique ID for the filename
         return File(getCacheDir(context), "$bookId.jpg")

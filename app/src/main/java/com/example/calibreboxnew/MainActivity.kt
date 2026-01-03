@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.activity.compose.setContent
@@ -101,9 +102,21 @@ class MainActivity : ComponentActivity() {
         DropboxHelper.login(this)
     }
 
-    private fun logout(context: Context, onLogoutComplete: () -> Int) {
+    private fun logout(context: Context, onLogoutComplete: () -> Unit) {
         DropboxHelper.logout(context)
-        onLogoutComplete()
+        SettingsHelper.deleteCalibreLibraryPath(context)
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                DatabaseHelper.clearDatabase(context)
+                // Clear any cached cover images to ensure a fresh start on next login
+                try {
+                    CoverCacheHelper.clearCache(context)
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Failed to clear cover cache", e)
+                }
+            }
+            onLogoutComplete()
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -252,6 +265,7 @@ class MainActivity : ComponentActivity() {
                             onClick = {
                                 logout(context) {
                                     isLoggedIn = false
+                                    calibreLibraryPath = null
                                     resumeCounter++ // Trigger UI refresh
                                 }
                                 scope.launch { drawerState.close() }
@@ -266,7 +280,7 @@ class MainActivity : ComponentActivity() {
                 topBar = {
                     if (isLoggedIn) {
                         CenterAlignedTopAppBar(
-                            title = { Text("My Library", fontSize = 18.sp) },
+                            title = { SearchBar(query = searchQuery, onQueryChange = { searchQuery = it }) },
                             navigationIcon = {
                                 IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                     Icon(Icons.Default.Menu, contentDescription = "Menu")
@@ -290,7 +304,6 @@ class MainActivity : ComponentActivity() {
                                 calibreLibraryPath = path
                             })
                         } else {
-                            SearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
                             if (allBooks.isEmpty() && !isRefreshing) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
@@ -370,7 +383,7 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
 
         LaunchedEffect(book.id) {
-            if (book.has_cover == 1L) {
+            if (book.has_cover == true) {
                 val cachedCover = CoverCacheHelper.getCover(context, book.id)
                 if (cachedCover != null) {
                     imageBitmap = cachedCover.asImageBitmap()
