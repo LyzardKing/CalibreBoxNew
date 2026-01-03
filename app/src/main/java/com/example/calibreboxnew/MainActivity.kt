@@ -254,6 +254,46 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        var authorFilterExpanded by remember { mutableStateOf(false) }
+
+                        Box {
+                            NavigationDrawerItem(
+                                label = { Text("Filter by Author") },
+                                selected = false,
+                                icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
+                                onClick = { authorFilterExpanded = true }
+                            )
+
+                            val authors = remember(allBooks) {
+                                allBooks.mapNotNull { it.authors }.toSet().sorted()
+                            }
+
+                            DropdownMenu(
+                                expanded = authorFilterExpanded,
+                                onDismissRequest = { authorFilterExpanded = false },
+                                modifier = Modifier.heightIn(max = 400.dp)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("All Authors") },
+                                    onClick = {
+                                        searchQuery = ""
+                                        authorFilterExpanded = false
+                                        scope.launch { drawerState.close() }
+                                    }
+                                )
+                                authors.forEach { author ->
+                                    DropdownMenuItem(
+                                        text = { Text(author) },
+                                        onClick = {
+                                            searchQuery = author
+                                            authorFilterExpanded = false
+                                            scope.launch { drawerState.close() }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
                         // Push remaining content to bottom
                         Spacer(modifier = Modifier.weight(1f))
 
