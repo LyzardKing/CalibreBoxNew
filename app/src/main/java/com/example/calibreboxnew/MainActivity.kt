@@ -1,5 +1,6 @@
 package com.example.calibreboxnew
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Log
@@ -15,14 +16,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,10 +29,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.dropbox.core.android.Auth
@@ -46,6 +46,7 @@ import com.example.calibreboxnew.ui.SearchBar
 import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
 import com.example.calibreboxnew.utils.normalizeForSearch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
@@ -58,32 +59,23 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             CalibreBoxNewTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    MainScreen(modifier = Modifier.padding(innerPadding))
-                }
+                MainScreen()
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // 1. Check if we are returning from the Dropbox login activity
         val newAuthToken = Auth.getOAuth2Token()
         if (newAuthToken != null) {
             DropboxHelper.saveAccessToken(this, newAuthToken)
             Log.d("MainActivity", "New Dropbox token received and saved.")
         }
 
-        // 2. Try to load any existing token
         val existingToken = DropboxHelper.getAccessToken(this)
-
-        // 3. Initialize the client if we have a token and the client isn't already running
         if (existingToken != null && DropboxHelper.getClient() == null) {
-            Log.d("MainActivity", "Initializing Dropbox client from stored token.")
             DropboxHelper.init(existingToken)
         }
-
-        // This triggers a recomposition to update the UI state
         resumeCounter++
     }
 
@@ -91,20 +83,23 @@ class MainActivity : ComponentActivity() {
         DropboxHelper.login(this)
     }
 
+    private fun logout(context: Context, onLogoutComplete: () -> Int) {
+        DropboxHelper.logout(context)
+        onLogoutComplete()
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun MainScreen(modifier: Modifier = Modifier) {
-        var isLoggedIn by remember(resumeCounter) { mutableStateOf(DropboxHelper.getClient() != null) }
+    fun MainScreen() {
         val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-        var calibreLibraryPath by remember {
-            mutableStateOf(SettingsHelper.getCalibreLibraryPath(context))
-        }
-
-        // Create a local, immutable copy of the state variable
+        var isLoggedIn by remember(resumeCounter) { mutableStateOf(DropboxHelper.getClient() != null) }
+        var calibreLibraryPath by remember { mutableStateOf(SettingsHelper.getCalibreLibraryPath(context)) }
         val currentPath = calibreLibraryPath
 
         val allBooks by produceState<List<GetAllBookDetails>>(initialValue = emptyList(), currentPath) {
-            // Use the local copy for the null check and subsequent operations
             if (currentPath != null) {
                 try {
                     DatabaseHelper.init(context, currentPath)
@@ -116,69 +111,186 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // --- NEW: State for search query ---
         var searchQuery by remember { mutableStateOf("") }
+        var sortOrder by remember { mutableStateOf(SortOrder.RECENTLY_ADDED) }
 
-        // --- NEW: Derived state for filtered books ---
-        val filteredBooks = remember(searchQuery, allBooks) {
+        val sortedBooks = remember(sortOrder, allBooks) {
+            when (sortOrder) {
+                SortOrder.TITLE -> allBooks.sortedBy { it.title.normalizeForSearch() }
+                SortOrder.AUTHOR -> allBooks.sortedWith(compareBy(nullsLast()) { it.authors?.normalizeForSearch() })
+                SortOrder.RECENTLY_ADDED -> allBooks.sortedByDescending { it.id }
+            }
+        }
+
+        val filteredBooks = remember(searchQuery, sortedBooks) {
             if (searchQuery.isBlank()) {
-                allBooks
+                sortedBooks
             } else {
                 val normalizedQuery = searchQuery.normalizeForSearch()
-                allBooks.filter { book ->
-                    // Search in title and authors
-                    val matchesTitle = book.title.normalizeForSearch().contains(normalizedQuery)
-                    val matchesAuthors = book.authors?.normalizeForSearch()?.contains(normalizedQuery) == true
-                    matchesTitle || matchesAuthors
+                sortedBooks.filter { book ->
+                    book.title.normalizeForSearch().contains(normalizedQuery) ||
+                            book.authors?.normalizeForSearch()?.contains(normalizedQuery) == true
                 }
             }
         }
 
+
         LaunchedEffect(allBooks.isNotEmpty()) {
             if (allBooks.isNotEmpty()) {
-                Log.d("MainScreen", "Book list loaded. Enqueueing background cover caching worker.")
                 val cacheWorkRequest = OneTimeWorkRequestBuilder<CoverCacheWorker>().build()
                 WorkManager.getInstance(context).enqueue(cacheWorkRequest)
             }
         }
 
-        Column(
-            modifier = modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            if (isLoggedIn) {
-                // Also use the local copy here for consistency
-                if (currentPath == null) {
-                    FileBrowser(onFolderSelected = { path ->
-                        SettingsHelper.saveCalibreLibraryPath(context, path)
-                        calibreLibraryPath = path
-                    })
-                } else {
-                    // --- NEW: Add the SearchBar ---
-                    SearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
+        // --- SIDEBAR DEFINITION ---
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = isLoggedIn, // Only allow swipe if logged in
+            drawerContent = {
+                ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(16.dp)
+                    ) {
+                        // 1. Logo Section
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 16.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.LibraryBooks,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                "CalibreBox",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
-                    if (allBooks.isEmpty()) {
-                        Text("Loading books...")
-                    } else {
-                        // --- Use the filtered list ---
-                        BookGridScreen(books = filteredBooks, calibreLibraryPath = currentPath)
+                        // 2. Separator
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        // 3. Sort Button
+                        var showSortMenu by remember { mutableStateOf(false) }
+
+                        Box {
+                            NavigationDrawerItem(
+                                label = { Text("Sort Books") },
+                                selected = false,
+                                icon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null) },
+                                onClick = { showSortMenu = true }
+                            )
+
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Title") },
+                                    onClick = {
+                                        sortOrder = SortOrder.TITLE
+                                        showSortMenu = false
+                                        scope.launch { drawerState.close() }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Author") },
+                                    onClick = {
+                                        sortOrder = SortOrder.AUTHOR
+                                        showSortMenu = false
+                                        scope.launch { drawerState.close() }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Recently Added") },
+                                    onClick = {
+                                        sortOrder = SortOrder.RECENTLY_ADDED
+                                        showSortMenu = false
+                                        scope.launch { drawerState.close() }
+                                    }
+                                )
+                            }
+                        }
+
+                        // Push remaining content to bottom
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        // 4. Logout Button
+                        NavigationDrawerItem(
+                            label = { Text("Logout") },
+                            selected = false,
+                            icon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) },
+                            onClick = {
+                                logout(context) {
+                                    isLoggedIn = false
+                                    resumeCounter++ // Trigger UI refresh
+                                }
+                                scope.launch { drawerState.close() }
+                            }
+                        )
                     }
                 }
-            } else {
-                Button(onClick = { loginToDropbox() }) {
-                    Text("Login to Dropbox")
+            }
+        ) {
+            // --- MAIN CONTENT AREA ---
+            Scaffold(
+                topBar = {
+                    if (isLoggedIn) {
+                        CenterAlignedTopAppBar(
+                            title = { Text("My Library", fontSize = 18.sp) },
+                            navigationIcon = {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(Icons.Default.Menu, contentDescription = "Menu")
+                                }
+                            }
+                        )
+                    }
+                }
+            ) { innerPadding ->
+                Column(
+                    modifier = Modifier
+                        .padding(innerPadding)
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (isLoggedIn) {
+                        if (currentPath == null) {
+                            FileBrowser(onFolderSelected = { path ->
+                                SettingsHelper.saveCalibreLibraryPath(context, path)
+                                calibreLibraryPath = path
+                            })
+                        } else {
+                            SearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
+                            if (allBooks.isEmpty()) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
+                            } else {
+                                BookGridScreen(books = filteredBooks, calibreLibraryPath = currentPath)
+                            }
+                        }
+                    } else {
+                        Button(onClick = { loginToDropbox() }) {
+                            Text("Login to Dropbox")
+                        }
+                    }
                 }
             }
         }
     }
 
+    // ... [Rest of your BookGridScreen and BookCoverItem code remains the same] ...
 
     @Composable
     fun BookGridScreen(books: List<GetAllBookDetails>, calibreLibraryPath: String) {
         var selectedBook by remember { mutableStateOf<GetAllBookDetails?>(null) }
 
-        // --- NEW: Add a message for no search results ---
         if (books.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -196,24 +308,17 @@ class MainActivity : ComponentActivity() {
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(books, key = { it.id }) { book -> // Use a key for better performance
+            items(books, key = { it.id }) { book ->
                 BookCoverItem(
                     book = book,
                     calibreLibraryPath = calibreLibraryPath,
-                    onBookClicked = {
-                        selectedBook = it
-                    }
+                    onBookClicked = { selectedBook = it }
                 )
             }
         }
 
         selectedBook?.let { book ->
-            BookDetailsDialog(
-                book = book,
-                onDismissRequest = {
-                    selectedBook = null
-                }
-            )
+            BookDetailsDialog(book = book, onDismissRequest = { selectedBook = null })
         }
     }
 
@@ -221,7 +326,7 @@ class MainActivity : ComponentActivity() {
     fun BookCoverItem(
         book: GetAllBookDetails,
         calibreLibraryPath: String,
-        onBookClicked: (GetAllBookDetails) -> Unit // The click handler parameter
+        onBookClicked: (GetAllBookDetails) -> Unit
     ) {
         var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
         val context = LocalContext.current
@@ -233,7 +338,6 @@ class MainActivity : ComponentActivity() {
                     imageBitmap = cachedCover.asImageBitmap()
                 } else {
                     val coverPath = "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace("//", "/")
-                    Log.d("BookCoverItem", "Cache miss for book ID ${book.id}. Fetching from: $coverPath")
                     try {
                         val outputStream = ByteArrayOutputStream()
                         DropboxHelper.downloadFile(coverPath, outputStream)
@@ -248,7 +352,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("BookCoverItem", "Failed to load cover for '${book.title}'", e)
+                        Log.e("BookCoverItem", "Failed to load cover", e)
                     }
                 }
             }
@@ -258,7 +362,7 @@ class MainActivity : ComponentActivity() {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onBookClicked(book) } // Make the whole item clickable
+                .clickable { onBookClicked(book) }
                 .padding(vertical = 4.dp)
         ) {
             Card(
@@ -267,10 +371,7 @@ class MainActivity : ComponentActivity() {
                     .height(180.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (imageBitmap != null) {
                         Image(
                             bitmap = imageBitmap!!,
@@ -279,12 +380,7 @@ class MainActivity : ComponentActivity() {
                             contentScale = ContentScale.Crop
                         )
                     } else {
-                        // Placeholder for books without a cover or while loading
-                        Icon(
-                            imageVector = Icons.Default.Book,
-                            contentDescription = "No cover available",
-                            modifier = Modifier.size(48.dp)
-                        )
+                        Icon(Icons.Default.Book, contentDescription = null, modifier = Modifier.size(48.dp))
                     }
                 }
             }
@@ -296,22 +392,6 @@ class MainActivity : ComponentActivity() {
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
-        }
-    }
-
-    @Preview(showBackground = true)
-    @Composable
-    fun LoginScreenPreview() {
-        CalibreBoxNewTheme {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Button(onClick = {}) {
-                    Text("Login to Dropbox")
-                }
-            }
         }
     }
 }

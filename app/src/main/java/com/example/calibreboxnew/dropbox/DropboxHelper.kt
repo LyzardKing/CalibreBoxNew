@@ -42,6 +42,10 @@ object DropboxHelper {
         )
     }
 
+    fun logout(context: Context) {
+        clearAccessToken(context)
+    }
+
     fun getAccessToken(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val token = prefs.getString(KEY_ACCESS_TOKEN, null)
@@ -55,12 +59,12 @@ object DropboxHelper {
         Log.d("DropboxHelper", "Saved access token to SharedPreferences.")
     }
 
-//    fun clearAccessToken(context: Context) {
-//        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-//        prefs.edit { remove(KEY_ACCESS_TOKEN) }
-//        client = null // Also clear the in-memory client
-//        Log.d("DropboxHelper", "Cleared access token and client.")
-//    }
+    fun clearAccessToken(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit { remove(KEY_ACCESS_TOKEN) }
+        client = null // Also clear the in-memory client
+        Log.d("DropboxHelper", "Cleared access token and client.")
+    }
 
     suspend fun listFolder(path: String): ListFolderResult? {
         return withContext(Dispatchers.IO) {
