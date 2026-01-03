@@ -77,4 +77,16 @@ object DropboxHelper {
             client?.files()?.download(path)?.download(outputStream)
         }
     }
+
+    suspend fun getFileMetadata(path: String): FileMetadata? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val meta = client?.files()?.getMetadata(path)
+                if (meta is FileMetadata) meta else null
+            } catch (e: Exception) {
+                Log.w("DropboxHelper", "Failed to get metadata for '$path'", e)
+                null
+            }
+        }
+    }
 }

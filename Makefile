@@ -3,8 +3,8 @@ PACKAGE_NAME = com.example.calibreboxnew
 MAIN_ACTIVITY = com.example.calibreboxnew.MainActivity
 ADB = adb
 GRADLEW = ./gradlew
-BUILD_TYPE = assembleDebug
-APK_PATH = app/build/outputs/apk/debug/app-debug.apk
+BUILD_TYPE = assembleRelease
+APK_PATH = app/build/outputs/apk/release/app-release.apk
 OUTPUT_NAME = unsigned-app.apk
 
 .PHONY: all help clean build copy-apk

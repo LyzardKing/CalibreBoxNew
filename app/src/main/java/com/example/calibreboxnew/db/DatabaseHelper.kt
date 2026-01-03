@@ -14,25 +14,59 @@ object DatabaseHelper {
     private var driver: AndroidSqliteDriver? = null
     private var database: CalibreMetadata? = null
 
-    suspend fun init(context: Context, calibreLibraryPath: String) {
+    suspend fun init(context: Context, calibreLibraryPath: String, forceDownload: Boolean = false) {
         withContext(Dispatchers.IO) {
             val dbFile = context.getDatabasePath("metadata.db")
 
             val cleanPath = "/${calibreLibraryPath.trim('/')}/metadata.db".replace("//", "/")
-            Log.d("DatabaseHelper", "Attempting to download from robust Dropbox path: '$cleanPath'")
+            Log.d("DatabaseHelper", "Preparing to ensure local DB; remote path: '$cleanPath'")
 
-            try {
-                dbFile.outputStream().use { outputStream ->
-                    DropboxHelper.downloadFile(cleanPath, outputStream)
+            var shouldDownload = forceDownload || !dbFile.exists() || dbFile.length() == 0L
+
+            if (!shouldDownload) {
+                try {
+                    val remoteMeta = DropboxHelper.getFileMetadata(cleanPath)
+                    if (remoteMeta != null) {
+                        val remoteSize = remoteMeta.size
+                        val remoteTime = remoteMeta.serverModified?.time ?: 0L
+                        val localSize = dbFile.length()
+                        val localTime = if (dbFile.exists()) dbFile.lastModified() else 0L
+
+                        // If sizes match, or local file is newer/equal to remote modification time, skip download
+                        if (localSize == remoteSize || localTime >= remoteTime) {
+                            Log.d("DatabaseHelper", "Local DB appears up-to-date (size/time match). Skipping download.")
+                            shouldDownload = false
+                        } else {
+                            Log.d("DatabaseHelper", "Remote DB is newer or different size; will download.")
+                            shouldDownload = true
+                        }
+                    } else {
+                        Log.d("DatabaseHelper", "Remote metadata unavailable; will rely on local DB if present.")
+                        shouldDownload = false
+                    }
+                } catch (e: Exception) {
+                    Log.w("DatabaseHelper", "Failed to check remote metadata, falling back to local if present", e)
+                    shouldDownload = false
                 }
-                Log.d("DatabaseHelper", "Download complete. File size: ${dbFile.length()} bytes.")
-                if (dbFile.length() == 0L) {
-                    Log.e("DatabaseHelper", "DOWNLOADED FILE IS EMPTY! The path '$cleanPath' is likely incorrect.")
-                    return@withContext
+            }
+
+            if (shouldDownload) {
+                Log.d("DatabaseHelper", "Attempting to download metadata.db from Dropbox path: '$cleanPath'")
+                try {
+                    dbFile.outputStream().use { outputStream ->
+                        DropboxHelper.downloadFile(cleanPath, outputStream)
+                    }
+                    Log.d("DatabaseHelper", "Download complete. File size: ${dbFile.length()} bytes.")
+                    if (dbFile.length() == 0L) {
+                        Log.e("DatabaseHelper", "DOWNLOADED FILE IS EMPTY! The path '$cleanPath' is likely incorrect.")
+                        if (!dbFile.exists() || dbFile.length() == 0L) return@withContext
+                    }
+                } catch (e: Exception) {
+                    Log.e("DatabaseHelper", "Failed to download metadata.db from path '$cleanPath'", e)
+                    if (!dbFile.exists() || dbFile.length() == 0L) return@withContext
                 }
-            } catch (e: Exception) {
-                Log.e("DatabaseHelper", "Failed to download metadata.db from path '$cleanPath'", e)
-                return@withContext
+            } else {
+                Log.d("DatabaseHelper", "Using existing local metadata.db (no download performed).")
             }
 
             val callback = object : SupportSQLiteOpenHelper.Callback(version = 1) {
