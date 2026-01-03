@@ -4,26 +4,15 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import android.webkit.MimeTypeMap
 import android.widget.Toast
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +20,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.example.calibreboxnew.db.GetAllBookDetails
 import com.example.calibreboxnew.SettingsHelper
@@ -39,110 +29,126 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.nio.file.Files
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BookDetailsDialog(
     book: GetAllBookDetails,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope() // <-- Define the scope here
+    val scope = rememberCoroutineScope()
+    // Track which format is currently downloading to show progress
+    var downloadingFormat by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismissRequest) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .padding(vertical = 24.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            shape = MaterialTheme.shapes.large
+            shape = MaterialTheme.shapes.extraLarge
         ) {
             Column(
                 modifier = Modifier
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()) // Make content scrollable if it's too long
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                // Book Title
+                // Title and Authors
                 Text(
                     text = book.title,
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(8.dp))
 
-                // Authors
-                book.authors?.let { authors ->
+                book.authors?.let {
                     Text(
-                        text = "by $authors",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontStyle = FontStyle.Italic
+                        text = it,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.secondary
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                // Comment/Description
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                // Description Section
                 book.comment?.let { comment ->
                     Text(
                         text = "Description",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    // A simple way to clean up HTML tags from Calibre comments
-                    val cleanComment = comment.replace(Regex("<.*?>"), "")
+                    val cleanComment = comment.replace(Regex("<.*?>"), "").trim()
                     Text(
-                        text = cleanComment,
-                        style = MaterialTheme.typography.bodyMedium
+                        text = cleanComment.ifEmpty { "No description available." },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                book.formatsAndFiles.let { formatsAndFiles ->
-                    Text(
-                        text = "Files",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Split the string into individual file entries, e.g., ["EPUB:file.epub", "MOBI:file.mobi"]
-                        // Book names may contain commas, so use a custom delimiter
-                        formatsAndFiles.split("|||SEP|||").forEach { fileInfo ->
-                            // Split each entry into format and filename, e.g., ["EPUB", "file.epub"]
-                            val parts = fileInfo.split(':', limit = 2)
-                            if (parts.size == 2) {
-                                val format = parts[0]
-                                val fileName = parts[1] // <-- This is the REAL filename
+                // File Formats Section
+                Text(
+                    text = "Available Formats",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
 
-                                // FIX: Construct the path with the correct filename
-                                val fullPath = "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/${fileName}.${format.lowercase()}".replace("//", "/")
+                // FlowRow handles wrapping if there are many formats
+                FlowRow(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    book.formatsAndFiles.split("|||SEP|||").forEach { fileInfo ->
+                        val parts = fileInfo.split(':', limit = 2)
+                        if (parts.size == 2) {
+                            val format = parts[0]
+                            val fileName = parts[1]
+                            val isThisDownloading = downloadingFormat == format
 
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    IconButton(onClick = {
+                            AssistChip(
+                                onClick = {
+                                    if (downloadingFormat == null) {
                                         scope.launch {
+                                            downloadingFormat = format
+                                            val fullPath = "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}"
+                                                .replace("//", "/")
                                             openFileWithIntent(context, fullPath, format)
+                                            downloadingFormat = null
                                         }
-                                    }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Download,
-                                            contentDescription = "Download $format"
-                                        )
                                     }
-                                    Text(
-                                        text = format,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                }
-                            }
+                                },
+                                label = { Text(format) },
+                                leadingIcon = {
+                                    if (isThisDownloading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.Download, contentDescription = null, Modifier.size(18.dp))
+                                    }
+                                },
+                                enabled = downloadingFormat == null
+                            )
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                // Dismiss Button
-                TextButton(
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Bottom Action
+                Button(
                     onClick = onDismissRequest,
-                    modifier = Modifier.align(Alignment.End)
+                    modifier = Modifier.align(Alignment.End),
+                    contentPadding = PaddingValues(horizontal = 24.dp)
                 ) {
                     Text("Close")
                 }
@@ -151,69 +157,48 @@ fun BookDetailsDialog(
     }
 }
 
-/**
- * Creates an ACTION_VIEW intent to open a file from a URL.
- * Android will show a chooser for apps that can handle the file's MIME type.
- * This is the "Open with..." or "Import" behavior.
- */
 private suspend fun openFileWithIntent(context: Context, dropboxPath: String, format: String) {
-    // 1. Map the MimeType
-//    val mimeType = when (format.lowercase()) {
-//        "epub" -> "application/epub+zip"
-//        "pdf"  -> "application/pdf"
-//        "mobi" -> "application/x-mobipocket-ebook"
-//        else   -> "application/octet-stream"
-//    }
-
     try {
-        // Prepare the Temp File in Cache
-        val tempFile = File(context.cacheDir, "temp_book.${format.lowercase()}")
+        val booksDir = File(context.cacheDir, "books")
+        if (!booksDir.exists()) {
+            booksDir.mkdirs()
+        }
 
-        // Download and AUTO-CLOSE the stream using .use
+        val tempFile = File(booksDir, "temp_${System.currentTimeMillis()}.${format.lowercase()}")
+
         withContext(Dispatchers.IO) {
-            // .use ensures the stream is closed even if the download fails
             tempFile.outputStream().use { stream ->
                 DropboxHelper.downloadFile(dropboxPath, stream)
             }
         }
 
-        // Verify file was actually written
-        if (!tempFile.exists() || tempFile.length() == 0L) {
-            throw Exception("File is empty or was not created.")
-        }
+        if (!tempFile.exists() || tempFile.length() == 0L) throw Exception("Download failed")
 
-        // Detect the mimetype automagically
-        val mimeType = Files.probeContentType(tempFile.toPath())
+        // Better MimeType detection using Android standard MimeTypeMap
+        val extension = MimeTypeMap.getFileExtensionFromUrl(tempFile.absolutePath)
+        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
 
-
-        // Get Secure URI
         val contentUri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             tempFile
         )
 
-        // Launch Intent on Main Thread
         withContext(Dispatchers.Main) {
-            val targetIntent = Intent(Intent.ACTION_VIEW).apply {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(contentUri, mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                // This helps modern apps recognize the permission
                 clipData = ClipData.newRawUri("", contentUri)
             }
 
-            val chooser = Intent.createChooser(targetIntent, "Open with...")
-            // Grant permission to the chooser wrapper too
+            val chooser = Intent.createChooser(intent, "Read with...")
             chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-
             context.startActivity(chooser)
         }
-
     } catch (e: Exception) {
-        Log.e("DropboxError", "Path attempted: $dropboxPath")
-        Log.e("DropboxError", "Error detail: ${e.message}")
+        Log.e("BookDetails", "Error opening file: ${e.message}")
         withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Could not open file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
 }

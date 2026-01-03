@@ -1,5 +1,6 @@
 package com.example.calibreboxnew
 
+import CacheCleanupWorker
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +36,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.dropbox.core.android.Auth
 import com.example.calibreboxnew.db.DatabaseHelper
@@ -49,6 +53,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
@@ -57,6 +62,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        scheduleCacheCleanup()
         setContent {
             CalibreBoxNewTheme {
                 MainScreen()
@@ -79,6 +85,18 @@ class MainActivity : ComponentActivity() {
         resumeCounter++
     }
 
+    fun scheduleCacheCleanup() {
+        val cleanupRequest = PeriodicWorkRequestBuilder<CacheCleanupWorker>(
+            24, TimeUnit.HOURS // Run once a day
+        ).build()
+
+        WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            "CacheCleanup",
+            ExistingPeriodicWorkPolicy.KEEP, // Keep the existing schedule if already set
+            cleanupRequest
+        )
+    }
+
     private fun loginToDropbox() {
         DropboxHelper.login(this)
     }
@@ -99,14 +117,20 @@ class MainActivity : ComponentActivity() {
         var calibreLibraryPath by remember { mutableStateOf(SettingsHelper.getCalibreLibraryPath(context)) }
         val currentPath = calibreLibraryPath
 
-        val allBooks by produceState<List<GetAllBookDetails>>(initialValue = emptyList(), currentPath) {
+        var isRefreshing by remember { mutableStateOf(false) }
+        val allBooks by produceState<List<GetAllBookDetails>>(initialValue = emptyList(), currentPath, isRefreshing) {
             if (currentPath != null) {
                 try {
+                    if (isRefreshing) {
+                        DatabaseHelper.reDownloadDatabase(context, currentPath)
+                        isRefreshing = false // Reset refresh state
+                    }
                     DatabaseHelper.init(context, currentPath)
                     value = DatabaseHelper.getBooks()
                 } catch (e: Exception) {
                     Log.e("MainScreen", "Error loading books", e)
                     value = emptyList()
+                    isRefreshing = false // Reset refresh state in case of error
                 }
             }
         }
@@ -267,12 +291,17 @@ class MainActivity : ComponentActivity() {
                             })
                         } else {
                             SearchBar(query = searchQuery, onQueryChange = { searchQuery = it })
-                            if (allBooks.isEmpty()) {
+                            if (allBooks.isEmpty() && !isRefreshing) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
                                 }
                             } else {
-                                BookGridScreen(books = filteredBooks, calibreLibraryPath = currentPath)
+                                BookGridScreen(
+                                    books = filteredBooks,
+                                    calibreLibraryPath = currentPath,
+                                    isRefreshing = isRefreshing,
+                                    onRefresh = { isRefreshing = true }
+                                )
                             }
                         }
                     } else {
@@ -285,13 +314,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ... [Rest of your BookGridScreen and BookCoverItem code remains the same] ...
-
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun BookGridScreen(books: List<GetAllBookDetails>, calibreLibraryPath: String) {
+    fun BookGridScreen(
+        books: List<GetAllBookDetails>,
+        calibreLibraryPath: String,
+        isRefreshing: Boolean,
+        onRefresh: () -> Unit
+    ) {
         var selectedBook by remember { mutableStateOf<GetAllBookDetails?>(null) }
 
-        if (books.isEmpty()) {
+        if (books.isEmpty() && !isRefreshing) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -301,19 +334,24 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 120.dp),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh
         ) {
-            items(books, key = { it.id }) { book ->
-                BookCoverItem(
-                    book = book,
-                    calibreLibraryPath = calibreLibraryPath,
-                    onBookClicked = { selectedBook = it }
-                )
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 120.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(books, key = { it.id }) { book ->
+                    BookCoverItem(
+                        book = book,
+                        calibreLibraryPath = calibreLibraryPath,
+                        onBookClicked = { selectedBook = it }
+                    )
+                }
             }
         }
 
