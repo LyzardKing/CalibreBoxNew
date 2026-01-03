@@ -2,7 +2,6 @@ package com.example.calibreboxnew.db
 
 import android.content.Context
 import android.util.Log
-import androidx.compose.foundation.layout.size
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver

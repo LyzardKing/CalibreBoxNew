@@ -6,15 +6,10 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import androidx.core.graphics.scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object CoverCacheHelper {
-
-    private const val THUMBNAIL_WIDTH = 120 // A small width for the thumbnail
-    //private const val FULL_RES_QUALITY = 90
-    private const val THUMBNAIL_QUALITY = 60
 
     private fun getCacheDir(context: Context): File {
         // Create a specific subdirectory for covers to keep things organized
@@ -31,7 +26,7 @@ object CoverCacheHelper {
         return File(getCacheDir(context), "$bookId.jpg")
     }
 
-    suspend fun saveCover(context: Context, bookId: Long, bitmap: Bitmap) {
+    fun saveCover(context: Context, bookId: Long, bitmap: Bitmap) {
         val file = getCoverFile(context, bookId)
         try {
             // Calculate the height to maintain aspect ratio

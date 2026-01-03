@@ -1,10 +1,8 @@
 package com.example.calibreboxnew.ui
 
-import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -13,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,13 +33,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import com.example.calibreboxnew.db.GetAllBookDetails
-import androidx.core.net.toUri
 import com.example.calibreboxnew.SettingsHelper
 import com.example.calibreboxnew.dropbox.DropboxHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
 
 @Composable
 fun BookDetailsDialog(
@@ -97,7 +94,7 @@ fun BookDetailsDialog(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                book.formatsAndFiles?.let { formatsAndFiles ->
+                book.formatsAndFiles.let { formatsAndFiles ->
                     Text(
                         text = "Files",
                         style = MaterialTheme.typography.titleSmall,
@@ -109,7 +106,8 @@ fun BookDetailsDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Split the string into individual file entries, e.g., ["EPUB:file.epub", "MOBI:file.mobi"]
-                        formatsAndFiles.split(',').forEach { fileInfo ->
+                        // Book names may contain commas, so use a custom delimiter
+                        formatsAndFiles.split("|||SEP|||").forEach { fileInfo ->
                             // Split each entry into format and filename, e.g., ["EPUB", "file.epub"]
                             val parts = fileInfo.split(':', limit = 2)
                             if (parts.size == 2) {
@@ -160,17 +158,18 @@ fun BookDetailsDialog(
  */
 private suspend fun openFileWithIntent(context: Context, dropboxPath: String, format: String) {
     // 1. Map the MimeType
-    val mimeType = when (format.lowercase()) {
-        "epub" -> "application/epub+zip"
-        "pdf"  -> "application/pdf"
-        else   -> "application/octet-stream"
-    }
+//    val mimeType = when (format.lowercase()) {
+//        "epub" -> "application/epub+zip"
+//        "pdf"  -> "application/pdf"
+//        "mobi" -> "application/x-mobipocket-ebook"
+//        else   -> "application/octet-stream"
+//    }
 
     try {
-        // 2. Prepare the Temp File in Cache
+        // Prepare the Temp File in Cache
         val tempFile = File(context.cacheDir, "temp_book.${format.lowercase()}")
 
-        // 3. Download and AUTO-CLOSE the stream using .use
+        // Download and AUTO-CLOSE the stream using .use
         withContext(Dispatchers.IO) {
             // .use ensures the stream is closed even if the download fails
             tempFile.outputStream().use { stream ->
@@ -178,19 +177,23 @@ private suspend fun openFileWithIntent(context: Context, dropboxPath: String, fo
             }
         }
 
-        // 4. Verify file was actually written
+        // Verify file was actually written
         if (!tempFile.exists() || tempFile.length() == 0L) {
             throw Exception("File is empty or was not created.")
         }
 
-        // 5. Get Secure URI
+        // Detect the mimetype automagically
+        val mimeType = Files.probeContentType(tempFile.toPath())
+
+
+        // Get Secure URI
         val contentUri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             tempFile
         )
 
-        // 6. Launch Intent on Main Thread
+        // Launch Intent on Main Thread
         withContext(Dispatchers.Main) {
             val targetIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(contentUri, mimeType)

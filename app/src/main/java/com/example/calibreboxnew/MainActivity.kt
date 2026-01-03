@@ -51,7 +51,7 @@ import java.io.ByteArrayOutputStream
 
 class MainActivity : ComponentActivity() {
 
-    private var resumeCounter by mutableStateOf(0)
+    private var resumeCounter by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

@@ -24,30 +24,6 @@ object DropboxHelper {
         return client
     }
 
-    // Function to get a temporary download link
-    // This needs to be a suspend function because it's a network call
-    suspend fun getLink(path: String): String? {
-        // Ensure the client is not null before using it
-        val currentClient = client ?: run {
-            Log.e("DropboxHelper", "getLink failed: Dropbox client is not initialized.")
-            return null
-        }
-
-        return withContext(Dispatchers.IO) {
-            try {
-                // Use the Dropbox SDK to create a temporary link for the file
-                val result = currentClient.files().getTemporaryLink(path)
-                Log.d("DropboxHelper", "Successfully created temporary link for: $path")
-                // Return the generated link URL
-                result.link
-            } catch (e: Exception) {
-                Log.e("DropboxHelper", "Error getting temporary link for path: $path", e)
-                // Return null if there was an error (e.g., file not found)
-                null
-            }
-        }
-    }
-
     fun init(accessToken: String) {
         if (client == null) {
             Log.d("DropboxHelper", "Initializing DbxClientV2 with a token.")
@@ -61,7 +37,8 @@ object DropboxHelper {
             context,
             BuildConfig.DROPBOX_APP_KEY,
             DbxRequestConfig("calibre-box"),
-            listOf("files.content.read", "files.metadata.read")
+            //listOf("files.content.read", "files.metadata.read")
+            emptyList()
         )
     }
 
@@ -78,12 +55,12 @@ object DropboxHelper {
         Log.d("DropboxHelper", "Saved access token to SharedPreferences.")
     }
 
-    fun clearAccessToken(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit { remove(KEY_ACCESS_TOKEN) }
-        client = null // Also clear the in-memory client
-        Log.d("DropboxHelper", "Cleared access token and client.")
-    }
+//    fun clearAccessToken(context: Context) {
+//        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+//        prefs.edit { remove(KEY_ACCESS_TOKEN) }
+//        client = null // Also clear the in-memory client
+//        Log.d("DropboxHelper", "Cleared access token and client.")
+//    }
 
     suspend fun listFolder(path: String): ListFolderResult? {
         return withContext(Dispatchers.IO) {

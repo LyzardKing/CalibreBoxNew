@@ -29,7 +29,7 @@ SELECT
     c.text AS comment,
     GROUP_CONCAT(a.name, ', ') AS authors,
     -- Fetch format AND name pairs, like "EPUB:The-Hobbit,MOBI:The-Hobbit"
-    (SELECT GROUP_CONCAT(d.format || ':' || d.name, ',') FROM data d WHERE d.book = b.id) AS formatsAndFiles
+    (SELECT GROUP_CONCAT(d.format || ':' || d.name, '|||SEP|||') FROM data d WHERE d.book = b.id) AS formatsAndFiles
 FROM
     books AS b
 LEFT JOIN
