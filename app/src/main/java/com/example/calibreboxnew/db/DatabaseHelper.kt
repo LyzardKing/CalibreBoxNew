@@ -54,7 +54,7 @@ object DatabaseHelper {
                 Log.d("DatabaseHelper", "Attempting to download metadata.db from Dropbox path: '$cleanPath'")
                 try {
                     dbFile.outputStream().use { outputStream ->
-                        DropboxHelper.downloadFile(cleanPath, outputStream)
+                        DropboxHelper.downloadFile(context, cleanPath, outputStream)
                     }
                     Log.d("DatabaseHelper", "Download complete. File size: ${dbFile.length()} bytes.")
                     if (dbFile.length() == 0L) {

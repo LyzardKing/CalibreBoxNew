@@ -431,7 +431,7 @@ class MainActivity : ComponentActivity() {
                     val coverPath = "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace("//", "/")
                     try {
                         val outputStream = ByteArrayOutputStream()
-                        DropboxHelper.downloadFile(coverPath, outputStream)
+                        DropboxHelper.downloadFile(context, coverPath, outputStream)
                         val imageBytes = outputStream.toByteArray()
                         if (imageBytes.isNotEmpty()) {
                             val downloadedBitmap = withContext(Dispatchers.IO) {

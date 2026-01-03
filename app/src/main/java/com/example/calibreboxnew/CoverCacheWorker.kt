@@ -64,7 +64,7 @@ class CoverCacheWorker(
                                 "/"
                             )
                         val outputStream = ByteArrayOutputStream()
-                        DropboxHelper.downloadFile(coverPath, outputStream)
+                        DropboxHelper.downloadFile(context, coverPath, outputStream)
                         val imageBytes = outputStream.toByteArray()
 
                         if (imageBytes.isNotEmpty()) {
