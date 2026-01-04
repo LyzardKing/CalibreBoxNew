@@ -73,15 +73,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        val newAuthToken = Auth.getOAuth2Token()
-        if (newAuthToken != null) {
-            DropboxHelper.saveAccessToken(this, newAuthToken)
-            Log.d("MainActivity", "New Dropbox token received and saved.")
-        }
-
-        val existingToken = DropboxHelper.getAccessToken(this)
-        if (existingToken != null && DropboxHelper.getClient() == null) {
-            DropboxHelper.init(existingToken)
+        // Check for newly obtained credential after OAuth flow
+        val newCredential = Auth.getDbxCredential()
+        if (newCredential != null) {
+            DropboxHelper.saveCredential(this, newCredential)
+            DropboxHelper.init(newCredential)
+            Log.d("MainActivity", "New Dropbox credential received and saved (refresh token enabled).")
+        } else if (DropboxHelper.getClient() == null) {
+            // Try to initialize from saved credential
+            DropboxHelper.initFromSavedCredential(this)
         }
         resumeCounter++
     }

@@ -28,11 +28,11 @@ class CoverCacheWorker(
             }
 
             // Ensure Dropbox client is initialized. This is crucial for background work.
-            val accessToken = DropboxHelper.getAccessToken(context)
-            if (accessToken == null || DropboxHelper.getClient() == null) {
-                accessToken?.let {
-                    token ->
-                    DropboxHelper.init(accessToken)
+            if (DropboxHelper.getClient() == null) {
+                // Try to initialize from saved credential (with refresh token support)
+                if (!DropboxHelper.initFromSavedCredential(context)) {
+                    Log.e("CoverCacheWorker", "Dropbox client not initialized. Cannot fetch covers.")
+                    return@withContext Result.failure()
                 }
             }
             if (DropboxHelper.getClient() == null) {
