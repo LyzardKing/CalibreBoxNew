@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,11 +23,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.FileProvider
+import com.example.calibreboxnew.dropbox.DropboxFileProvider
 import com.example.calibreboxnew.SettingsHelper
 import com.example.calibreboxnew.db.GetAllBookDetails
 import com.example.calibreboxnew.dropbox.DropboxHelper
-import java.io.File
+import com.example.calibreboxnew.KoboSender
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,9 +37,7 @@ import kotlinx.coroutines.withContext
 fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // Track which format is currently downloading to show progress
-    var downloadingFormat by remember { mutableStateOf<String?>(null) }
-    var sharingFormat by remember { mutableStateOf<String?>(null) }
+    var sendingToKoboFormat by remember { mutableStateOf<String?>(null) }
 
     Dialog(
             onDismissRequest = onDismissRequest,
@@ -100,8 +99,6 @@ fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
                         if (parts.size == 2) {
                             val format = parts[0]
                             val fileName = parts[1]
-                            val isThisDownloading = downloadingFormat == format
-                            val isThisSharing = sharingFormat == format
 
                             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 // format label
@@ -111,82 +108,99 @@ fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
                                     modifier = Modifier.weight(1f)
                                 )
 
-                                // Download AssistChip (unchanged)
+                                // Download AssistChip - opens immediately, downloads on-demand
                                 AssistChip(
                                     onClick = {
-                                        if (downloadingFormat == null) {
-                                            scope.launch {
-                                                downloadingFormat = format
-                                                val fullPath =
-                                                    "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
-                                                val fileName = fileName.substringAfterLast('/')
-                                                openFileWithIntent(
-                                                    context,
-                                                    fullPath,
-                                                    fileName,
-                                                    format
-                                                )
-                                                downloadingFormat = null
+                                        val fullPath =
+                                            "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                        val cleanFileName = fileName.substringAfterLast('/')
+                                        openFileWithIntent(
+                                            context,
+                                            fullPath,
+                                            cleanFileName,
+                                            format
+                                        )
+                                    },
+                                    modifier = Modifier.size(36.dp),
+                                    label = {},
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Download,
+                                            contentDescription = null,
+                                            Modifier.size(18.dp)
+                                        )
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Share AssistChip - opens immediately, downloads on-demand
+                                AssistChip(
+                                    onClick = {
+                                        val fullPath =
+                                            "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                        val cleanFileName = fileName.substringAfterLast('/')
+                                        sendFile(
+                                            context,
+                                            fullPath,
+                                            cleanFileName,
+                                            format
+                                        )
+                                    },
+                                    modifier = Modifier.size(36.dp),
+                                    label = {},
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Share,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Send to Device (Kobo) AssistChip — copies inside Dropbox to /Apps/Rakuten Kobo
+                                AssistChip(
+                                    onClick = {
+                                        if (sendingToKoboFormat == null) {
+                                            if (DropboxHelper.getClient() == null) {
+                                                Toast.makeText(context, "Please login to Dropbox first", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                scope.launch {
+                                                    sendingToKoboFormat = format
+                                                    val fullPath =
+                                                        "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                                    val success = KoboSender.sendToKobo(
+                                                        context,
+                                                        fullPath
+                                                    )
+                                                    withContext(Dispatchers.Main) {
+                                                        if (success) Toast.makeText(context, "Sent to Kobo via Dropbox", Toast.LENGTH_SHORT).show()
+                                                        else Toast.makeText(context, "Failed to send to Kobo", Toast.LENGTH_LONG).show()
+                                                    }
+                                                    sendingToKoboFormat = null
+                                                }
                                             }
                                         }
                                     },
                                     modifier = Modifier.size(36.dp),
                                     label = {},
                                     leadingIcon = {
-                                        if (isThisDownloading) {
+                                        if (sendingToKoboFormat == format) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.size(18.dp),
                                                 strokeWidth = 2.dp
                                             )
                                         } else {
                                             Icon(
-                                                Icons.Default.Download,
+                                                Icons.Default.Backup,
                                                 contentDescription = null,
                                                 Modifier.size(18.dp)
                                             )
                                         }
                                     },
-                                    enabled = downloadingFormat == null
-                                )
-
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                // Share AssistChip (unchanged)
-                                AssistChip(
-                                    onClick = {
-                                        if (sharingFormat == null) {
-                                            scope.launch {
-                                                sharingFormat = format
-                                                val fullPath =
-                                                    "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
-                                                val fileName = fileName.substringAfterLast('/')
-                                                sendFileWithBluetooth(
-                                                    context,
-                                                    fullPath,
-                                                    fileName,
-                                                    format
-                                                )
-                                                sharingFormat = null
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.size(36.dp),
-                                    label = {},
-                                    leadingIcon = {
-                                        if (isThisSharing) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(18.dp),
-                                                strokeWidth = 2.dp
-                                            )
-                                        } else {
-                                            Icon(
-                                            imageVector = Icons.Default.Share,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        }
-                                    },
-                                    enabled = sharingFormat == null
+                                    enabled = sendingToKoboFormat == null
                                 )
                             }
                         }
@@ -206,87 +220,63 @@ fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
     }
 }
 
-private suspend fun downloadFileToTemp(
+private fun openFileWithIntent(
         context: Context,
         dropboxPath: String,
         fileName: String,
-        format: String
-): File {
-    val booksDir = File(context.cacheDir, "books")
-    if (!booksDir.exists()) {
-        booksDir.mkdirs()
-    }
-
-    val tempFile = File(booksDir, "temp_${fileName}.${format.lowercase()}")
-
-    // Download the file from Dropbox if it doesn't exist or is empty
-    if (tempFile.exists() && tempFile.length() > 0L) {
-        Log.d("BookDetails", "File already exists. Using cached version.")
-    } else {
-        withContext(Dispatchers.IO) {
-                tempFile.outputStream().use { stream ->
-                DropboxHelper.downloadFile(context, dropboxPath, stream)
-            }
-        }
-    }
-
-    if (!tempFile.exists() || tempFile.length() == 0L) throw Exception("Download failed")
-    return tempFile
-}
-
-private suspend fun openFileWithIntent(
-        context: Context,
-        dropboxPath: String,
-        fileName: String,
-        format: String
+        extension: String
 ) {
     try {
-        val tempFile = downloadFileToTemp(context, dropboxPath, fileName, format)
-
         // Better MimeType detection using Android standard MimeTypeMap
-        val extension = MimeTypeMap.getFileExtensionFromUrl(tempFile.absolutePath)
         val mimeType =
                 MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
                         ?: "application/octet-stream"
 
-        val contentUri =
-                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
+        // Create a content URI using the DropboxFileProvider
+        // The actual download will happen when the user selects an app and it tries to read the file
+        val contentUri = DropboxFileProvider.createUri(
+            authority = context.packageName,
+            dropboxPath = dropboxPath,
+            fileName = fileName,
+            format = extension,
+            mimeType = mimeType
+        )
 
-        withContext(Dispatchers.Main) {
-            val intent =
-                    Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(contentUri, mimeType)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        clipData = ClipData.newRawUri("", contentUri)
-                    }
-
-            val chooser = Intent.createChooser(intent, "Read with...")
-            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            context.startActivity(chooser)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(contentUri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newRawUri("", contentUri)
         }
+
+        val chooser = Intent.createChooser(intent, "Read with...")
+        chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(chooser)
     } catch (e: Exception) {
         Log.e("BookDetails", "Error opening file: ${e.message}")
-        withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Could not open file: ${e.localizedMessage}", Toast.LENGTH_LONG)
-                    .show()
-        }
+        Toast.makeText(context, "Could not open file: ${e.localizedMessage}", Toast.LENGTH_LONG)
+                .show()
     }
 }
 
-private suspend fun sendFileWithBluetooth(
+private fun sendFile(
         context: Context,
         dropboxPath: String,
         fileName: String,
         format: String
 ) {
     try {
-        val tempFile = downloadFileToTemp(context, dropboxPath, fileName, format)
-
-        val contentUri =
-                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
         // Try to detect a proper MIME type; fallback to a generic type to maximize available targets
-        val extension = MimeTypeMap.getFileExtensionFromUrl(tempFile.absolutePath)
-        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(format.lowercase()) ?: "*/*"
+
+        // Create a content URI using the DropboxFileProvider
+        // The actual download will happen when the user selects an app and it tries to read the file
+        val contentUri = DropboxFileProvider.createUri(
+            authority = context.packageName,
+            dropboxPath = dropboxPath,
+            fileName = fileName,
+            format = format,
+            mimeType = mimeType
+        )
 
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
@@ -299,7 +289,7 @@ private suspend fun sendFileWithBluetooth(
         chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         context.startActivity(chooser)
     } catch (e: Exception) {
-        Log.e("BookDetails", "Error sending file via Bluetooth: ${e.message}")
+        Log.e("BookDetails", "Error sending file: ${e.message}")
         Toast.makeText(context, "Could not send file: ${e.localizedMessage}", Toast.LENGTH_LONG)
                 .show()
     }

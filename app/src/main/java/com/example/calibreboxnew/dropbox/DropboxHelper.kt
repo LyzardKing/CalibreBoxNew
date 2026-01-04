@@ -132,6 +132,22 @@ object DropboxHelper {
         }
     }
 
+    /**
+     * Copy a file within Dropbox from sourcePath to destPath.
+     * Returns true on success.
+     */
+    suspend fun copyFile(sourcePath: String, destPath: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = client?.files()?.copyV2(sourcePath, destPath)
+                result != null
+            } catch (e: Exception) {
+                Log.w("DropboxHelper", "copyFile failed from $sourcePath to $destPath", e)
+                false
+            }
+        }
+    }
+
     suspend fun downloadFile(context: Context, path: String, outputStream: OutputStream): FileMetadata? {
         return withContext(Dispatchers.IO) {
             try {
