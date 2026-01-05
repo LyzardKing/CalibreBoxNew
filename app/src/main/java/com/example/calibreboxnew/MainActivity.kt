@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
@@ -45,12 +46,16 @@ import com.dropbox.core.android.Auth
 import com.example.calibreboxnew.db.DatabaseHelper
 import com.example.calibreboxnew.db.GetAllBookDetails
 import com.example.calibreboxnew.dropbox.DropboxHelper
+import com.example.calibreboxnew.model.Library
+import com.example.calibreboxnew.ui.AddLibraryDialog
 import com.example.calibreboxnew.ui.BookDetailsDialog
 import com.example.calibreboxnew.ui.FileBrowser
+import com.example.calibreboxnew.ui.LibraryManagementSheet
 import com.example.calibreboxnew.ui.SearchBar
 import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
 import com.example.calibreboxnew.utils.normalizeForSearch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -104,13 +109,16 @@ class MainActivity : ComponentActivity() {
 
     private fun logout(context: Context, onLogoutComplete: () -> Unit) {
         DropboxHelper.logout(context)
-        SettingsHelper.deleteCalibreLibraryPath(context)
+        // Clear all libraries
+        SettingsHelper.getLibraries(context).forEach { library ->
+            SettingsHelper.removeLibrary(context, library.id)
+        }
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                DatabaseHelper.clearDatabase(context)
-                // Clear any cached cover images to ensure a fresh start on next login
+                DatabaseHelper.clearDatabase(context, libraryId = null) // Clear all
+                // Clear all library caches
                 try {
-                    CoverCacheHelper.clearCache(context)
+                    CoverCacheHelper.clearCache(context, libraryId = null) // Clear all
                 } catch (e: Exception) {
                     Log.e("MainActivity", "Failed to clear cover cache", e)
                 }
@@ -127,24 +135,46 @@ class MainActivity : ComponentActivity() {
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
         var isLoggedIn by remember(resumeCounter) { mutableStateOf(DropboxHelper.getClient() != null) }
-        var calibreLibraryPath by remember { mutableStateOf(SettingsHelper.getCalibreLibraryPath(context)) }
+        
+        // Multi-library support
+        var libraries by remember { mutableStateOf(SettingsHelper.getLibraries(context)) }
+        var currentLibrary by remember { mutableStateOf(SettingsHelper.getCurrentLibrary(context)) }
+        
+        // Derive path directly from currentLibrary
+        val calibreLibraryPath = currentLibrary?.dropboxPath
         val currentPath = calibreLibraryPath
+        
+        // Dialog states
+        var showAddLibraryDialog by remember { mutableStateOf(false) }
+        var showLibraryManagement by remember { mutableStateOf(false) }
 
         var isRefreshing by remember { mutableStateOf(false) }
-        val allBooks by produceState<List<GetAllBookDetails>>(initialValue = emptyList(), currentPath, isRefreshing) {
+        var libraryError by remember { mutableStateOf<String?>(null) }
+        var allBooks by remember { mutableStateOf<List<GetAllBookDetails>>(emptyList()) }
+        var refreshTrigger by remember { mutableStateOf(0) }
+        
+        // Load books when library changes or refresh is triggered
+        LaunchedEffect(currentLibrary?.id, currentPath, refreshTrigger) {
+            // Clear books immediately when library changes
+            allBooks = emptyList()
+            
             if (currentPath != null) {
                 try {
+                    libraryError = null
                     if (isRefreshing) {
-                        DatabaseHelper.reDownloadDatabase(context, currentPath)
-                        isRefreshing = false // Reset refresh state
+                        DatabaseHelper.reDownloadDatabase(context, currentPath, currentLibrary?.sharedLinkUrl, libraryId = currentLibrary?.id ?: "default")
+                        isRefreshing = false
                     }
-                    DatabaseHelper.init(context, currentPath)
-                    value = DatabaseHelper.getBooks()
+                    DatabaseHelper.init(context, currentPath, sharedLinkUrl = currentLibrary?.sharedLinkUrl, libraryId = currentLibrary?.id ?: "default")
+                    allBooks = DatabaseHelper.getBooks()
                 } catch (e: Exception) {
                     Log.e("MainScreen", "Error loading books", e)
-                    value = emptyList()
-                    isRefreshing = false // Reset refresh state in case of error
+                    libraryError = e.message ?: "Failed to load library"
+                    allBooks = emptyList()
+                    isRefreshing = false
                 }
+            } else {
+                allBooks = emptyList()
             }
         }
 
@@ -212,7 +242,48 @@ class MainActivity : ComponentActivity() {
                         // 2. Separator
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                        // 3. Sort Button
+                        // 3. Library Selection
+                        if (libraries.isNotEmpty()) {
+                            Text(
+                                "Libraries",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                            
+                            libraries.forEach { library ->
+                                val isSelected = library.id == currentLibrary?.id
+                                NavigationDrawerItem(
+                                    label = { 
+                                        Text(
+                                            library.name,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        ) 
+                                    },
+                                    selected = isSelected,
+                                    icon = { 
+                                        Icon(
+                                            Icons.Default.Book, 
+                                            contentDescription = null
+                                        ) 
+                                    },
+                                    badge = if (library.isDefault) {
+                                        { Text("Default", style = MaterialTheme.typography.labelSmall) }
+                                    } else null,
+                                    onClick = {
+                                        currentLibrary = library
+                                        SettingsHelper.setCurrentLibraryId(context, library.id)
+                                        scope.launch { drawerState.close() }
+                                    }
+                                )
+                            }
+                            
+                            Spacer(Modifier.height(8.dp))
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        }
+
+                        // 4. Sort Button
                         var showSortMenu by remember { mutableStateOf(false) }
 
                         Box {
@@ -297,7 +368,46 @@ class MainActivity : ComponentActivity() {
                         // Push remaining content to bottom
                         Spacer(modifier = Modifier.weight(1f))
 
-                        // 4. Logout Button
+                        // Add Library Button
+                        FilledTonalButton(
+                            onClick = { showAddLibraryDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Book,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add Library")
+                        }
+                        
+                        // Manage Libraries Button
+                        if (libraries.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = { 
+                                    showLibraryManagement = true
+                                    scope.launch { drawerState.close() }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Menu,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Manage Libraries")
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // Logout Button
                         NavigationDrawerItem(
                             label = { Text("Logout") },
                             selected = false,
@@ -305,7 +415,8 @@ class MainActivity : ComponentActivity() {
                             onClick = {
                                 logout(context) {
                                     isLoggedIn = false
-                                    calibreLibraryPath = null
+                                    libraries = emptyList()
+                                    currentLibrary = null
                                     resumeCounter++ // Trigger UI refresh
                                 }
                                 scope.launch { drawerState.close() }
@@ -315,6 +426,33 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ) {
+            // Add Library Dialog
+            if (showAddLibraryDialog) {
+                AddLibraryDialog(
+                    onDismiss = { showAddLibraryDialog = false },
+                    onLibraryAdded = { library ->
+                        val success = SettingsHelper.addLibrary(context, library)
+                        if (success) {
+                            libraries = SettingsHelper.getLibraries(context)
+                            currentLibrary = library
+                            SettingsHelper.setCurrentLibraryId(context, library.id)
+                        }
+                        showAddLibraryDialog = false
+                    }
+                )
+            }
+            
+            // Library Management Sheet
+            if (showLibraryManagement) {
+                LibraryManagementSheet(
+                    onDismiss = { showLibraryManagement = false },
+                    onLibrariesChanged = {
+                        libraries = SettingsHelper.getLibraries(context)
+                        currentLibrary = SettingsHelper.getCurrentLibrary(context)
+                    }
+                )
+            }
+            
             // --- MAIN CONTENT AREA ---
             Scaffold(
                 topBar = {
@@ -328,6 +466,21 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+                },
+                snackbarHost = {
+                    // Show error message if library fails to load
+                    libraryError?.let { error ->
+                        Snackbar(
+                            modifier = Modifier.padding(16.dp),
+                            action = {
+                                TextButton(onClick = { libraryError = null }) {
+                                    Text("Dismiss")
+                                }
+                            }
+                        ) {
+                            Text(error)
+                        }
+                    }
                 }
             ) { innerPadding ->
                 Column(
@@ -340,8 +493,18 @@ class MainActivity : ComponentActivity() {
                     if (isLoggedIn) {
                         if (currentPath == null) {
                             FileBrowser(onFolderSelected = { path ->
-                                SettingsHelper.saveCalibreLibraryPath(context, path)
-                                calibreLibraryPath = path
+                                // Create a default library from the selected path
+                                val newLibrary = Library(
+                                    id = java.util.UUID.randomUUID().toString(),
+                                    name = "My Library",
+                                    dropboxPath = path,
+                                    isDefault = true
+                                )
+                                SettingsHelper.addLibrary(context, newLibrary)
+                                SettingsHelper.setCurrentLibraryId(context, newLibrary.id)
+                                // Refresh the library list
+                                libraries = SettingsHelper.getLibraries(context)
+                                currentLibrary = SettingsHelper.getCurrentLibrary(context)
                             })
                         } else {
                             if (allBooks.isEmpty() && !isRefreshing) {
@@ -352,8 +515,12 @@ class MainActivity : ComponentActivity() {
                                 BookGridScreen(
                                     books = filteredBooks,
                                     calibreLibraryPath = currentPath,
+                                    currentLibrary = currentLibrary,
                                     isRefreshing = isRefreshing,
-                                    onRefresh = { isRefreshing = true }
+                                    onRefresh = { 
+                                        isRefreshing = true
+                                        refreshTrigger++
+                                    }
                                 )
                             }
                         }
@@ -372,6 +539,7 @@ class MainActivity : ComponentActivity() {
     fun BookGridScreen(
         books: List<GetAllBookDetails>,
         calibreLibraryPath: String,
+        currentLibrary: Library?,
         isRefreshing: Boolean,
         onRefresh: () -> Unit
     ) {
@@ -387,21 +555,30 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        val gridState = rememberLazyGridState()
+        
+        // Scroll to top when library changes
+        LaunchedEffect(currentLibrary?.id) {
+            gridState.scrollToItem(0)
+        }
+
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = onRefresh
         ) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 120.dp),
+                state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(books, key = { it.id }) { book ->
+                items(books, key = { "${currentLibrary?.id ?: "default"}_${it.id}" }) { book ->
                     BookCoverItem(
                         book = book,
                         calibreLibraryPath = calibreLibraryPath,
+                        sharedLinkUrl = currentLibrary?.sharedLinkUrl,
                         onBookClicked = { selectedBook = it }
                     )
                 }
@@ -409,7 +586,13 @@ class MainActivity : ComponentActivity() {
         }
 
         selectedBook?.let { book ->
-            BookDetailsDialog(book = book, onDismissRequest = { selectedBook = null })
+            currentLibrary?.let { library ->
+                BookDetailsDialog(
+                    book = book,
+                    library = library,
+                    onDismissRequest = { selectedBook = null }
+                )
+            }
         }
     }
 
@@ -417,35 +600,66 @@ class MainActivity : ComponentActivity() {
     fun BookCoverItem(
         book: GetAllBookDetails,
         calibreLibraryPath: String,
+        sharedLinkUrl: String?,
         onBookClicked: (GetAllBookDetails) -> Unit
     ) {
-        var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+        var imageBitmap by remember(calibreLibraryPath, sharedLinkUrl, book.id) { mutableStateOf<ImageBitmap?>(null) }
         val context = LocalContext.current
 
-        LaunchedEffect(book.id) {
+        LaunchedEffect(calibreLibraryPath, sharedLinkUrl, book.id) {
             if (book.has_cover == true) {
-                val cachedCover = CoverCacheHelper.getCover(context, book.id)
-                if (cachedCover != null) {
-                    imageBitmap = cachedCover.asImageBitmap()
-                } else {
-                    val coverPath = "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace("//", "/")
+                withContext(Dispatchers.IO) {
                     try {
-                        val outputStream = ByteArrayOutputStream()
-                        DropboxHelper.downloadFile(context, coverPath, outputStream)
-                        val imageBytes = outputStream.toByteArray()
-                        if (imageBytes.isNotEmpty()) {
-                            val downloadedBitmap = withContext(Dispatchers.IO) {
-                                BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                        val libraryId = calibreLibraryPath.hashCode().toString()
+                        
+                        // Check if we're still active before proceeding
+                        if (!isActive) return@withContext
+                        
+                        val cachedCover = CoverCacheHelper.getCover(context, libraryId, book.id)
+                        if (cachedCover != null) {
+                            if (!isActive) return@withContext
+                            withContext(Dispatchers.Main) {
+                                imageBitmap = cachedCover.asImageBitmap()
                             }
-                            if (downloadedBitmap != null) {
-                                CoverCacheHelper.saveCover(context, book.id, downloadedBitmap)
-                                imageBitmap = downloadedBitmap.asImageBitmap()
+                        } else {
+                            if (!isActive) return@withContext
+                            
+                            val coverPath = if (sharedLinkUrl != null) {
+                                "${book.path}/cover.jpg"
+                            } else {
+                                "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace("//", "/")
+                            }
+                            val outputStream = ByteArrayOutputStream()
+                            if (sharedLinkUrl != null) {
+                                DropboxHelper.downloadFileFromSharedLink(context, sharedLinkUrl, coverPath, outputStream)
+                            } else {
+                                DropboxHelper.downloadFile(context, coverPath, outputStream)
+                            }
+                            
+                            if (!isActive) return@withContext
+                            
+                            val imageBytes = outputStream.toByteArray()
+                            if (imageBytes.isNotEmpty()) {
+                                val downloadedBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                                if (downloadedBitmap != null) {
+                                    CoverCacheHelper.saveCover(context, libraryId, book.id, downloadedBitmap)
+                                    if (!isActive) return@withContext
+                                    withContext(Dispatchers.Main) {
+                                        imageBitmap = downloadedBitmap.asImageBitmap()
+                                    }
+                                }
                             }
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        // Expected when library changes - just cancel silently
+                        Log.d("BookCoverItem", "Cover load cancelled for book ${book.id}")
+                        throw e // Re-throw to properly cancel the coroutine
                     } catch (e: Exception) {
-                        Log.e("BookCoverItem", "Failed to load cover", e)
+                        Log.e("BookCoverItem", "Failed to load cover for book ${book.id}", e)
                     }
                 }
+            } else {
+                imageBitmap = null
             }
         }
 

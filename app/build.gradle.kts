@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.sqldelight)
     id("kotlin-parcelize")
 }
@@ -80,6 +81,7 @@ dependencies {
     implementation(libs.dropbox.core.sdk)
     implementation(libs.dropbox.android.sdk)
     implementation(libs.sqldelight.android.driver)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

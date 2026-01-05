@@ -11,9 +11,9 @@ import kotlinx.coroutines.withContext
 
 object CoverCacheHelper {
 
-    private fun getCacheDir(context: Context): File {
-        // Create a specific subdirectory for covers to keep things organized
-        val cacheDir = File(context.cacheDir, "covers")
+    private fun getCacheDir(context: Context, libraryId: String): File {
+        // Create a library-specific subdirectory for covers
+        val cacheDir = File(context.cacheDir, "covers/$libraryId")
         if (!cacheDir.exists()) {
             cacheDir.mkdirs()
             Log.d("CoverCacheHelper", "Created cover cache directory at: ${cacheDir.absolutePath}")
@@ -21,8 +21,12 @@ object CoverCacheHelper {
         return cacheDir
     }
 
-    fun clearCache(context: Context) {
-        val cacheDir = File(context.cacheDir, "covers")
+    fun clearCache(context: Context, libraryId: String? = null) {
+        val cacheDir = if (libraryId != null) {
+            File(context.cacheDir, "covers/$libraryId")
+        } else {
+            File(context.cacheDir, "covers")
+        }
         if (cacheDir.exists()) {
             try {
                 cacheDir.deleteRecursively()
@@ -33,13 +37,13 @@ object CoverCacheHelper {
         }
     }
 
-    private fun getCoverFile(context: Context, bookId: Long): File {
-        // Use the book's unique ID for the filename
-        return File(getCacheDir(context), "$bookId.jpg")
+    private fun getCoverFile(context: Context, libraryId: String, bookId: Long): File {
+        // Use the book's unique ID for the filename within the library-specific directory
+        return File(getCacheDir(context, libraryId), "$bookId.jpg")
     }
 
-    fun saveCover(context: Context, bookId: Long, bitmap: Bitmap) {
-        val file = getCoverFile(context, bookId)
+    fun saveCover(context: Context, libraryId: String, bookId: Long, bitmap: Bitmap) {
+        val file = getCoverFile(context, libraryId, bookId)
         try {
             // Calculate the height to maintain aspect ratio
             // val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
@@ -58,8 +62,8 @@ object CoverCacheHelper {
         }
     }
 
-    suspend fun getCover(context: Context, bookId: Long): Bitmap? {
-        val file = getCoverFile(context, bookId)
+    suspend fun getCover(context: Context, libraryId: String, bookId: Long): Bitmap? {
+        val file = getCoverFile(context, libraryId, bookId)
         return decodeBitmapFromFile(file, "full-res cover for book ID $bookId")
     }
 

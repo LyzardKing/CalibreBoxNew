@@ -21,11 +21,13 @@ class CoverCacheWorker(
 
     override suspend fun doWork(): Result {
         return withContext(Dispatchers.IO) {
-            val calibreLibraryPath = SettingsHelper.getCalibreLibraryPath(context)
+            val currentLibrary = SettingsHelper.getCurrentLibrary(context)
+            val calibreLibraryPath = currentLibrary?.dropboxPath
             if (calibreLibraryPath == null) {
                 Log.e("CoverCacheWorker", "Calibre library path is not set. Cannot run worker.")
                 return@withContext Result.failure()
             }
+            val libraryId = currentLibrary.id
 
             // Ensure Dropbox client is initialized. This is crucial for background work.
             if (DropboxHelper.getClient() == null) {
@@ -43,7 +45,7 @@ class CoverCacheWorker(
             Log.d("CoverCacheWorker", "Starting background cover caching...")
 
             // Re-initialize DB to get the book list in the background thread
-            DatabaseHelper.init(context, calibreLibraryPath)
+            DatabaseHelper.init(context, calibreLibraryPath, sharedLinkUrl = currentLibrary.sharedLinkUrl, libraryId = libraryId)
             val books = DatabaseHelper.getBooks()
 
             if (books.isEmpty()) {
@@ -56,7 +58,7 @@ class CoverCacheWorker(
 
             books.forEach { book ->
                 // Check if the book has a cover and if it's NOT already in the cache
-                if (book.has_cover == true && CoverCacheHelper.getCover(context, book.id) == null) {
+                if (book.has_cover == true && CoverCacheHelper.getCover(context, libraryId, book.id) == null) {
                     try {
                         val coverPath =
                             "/${calibreLibraryPath.trim('/')}/${book.path}/cover.jpg".replace(
@@ -71,7 +73,7 @@ class CoverCacheWorker(
                             val downloadedBitmap =
                                 BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                             if (downloadedBitmap != null) {
-                                CoverCacheHelper.saveCover(context, book.id, downloadedBitmap)
+                                CoverCacheHelper.saveCover(context, libraryId, book.id, downloadedBitmap)
                                 coversCached++
                             }
                         }

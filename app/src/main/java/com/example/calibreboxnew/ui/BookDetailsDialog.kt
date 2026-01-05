@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.calibreboxnew.model.Library
 import com.example.calibreboxnew.dropbox.DropboxFileProvider
 import com.example.calibreboxnew.SettingsHelper
 import com.example.calibreboxnew.db.GetAllBookDetails
@@ -34,10 +35,15 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
+fun BookDetailsDialog(
+    book: GetAllBookDetails,
+    library: Library,
+    onDismissRequest: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var sendingToKoboFormat by remember { mutableStateOf<String?>(null) }
+    val libraryPath = library.dropboxPath
 
     Dialog(
             onDismissRequest = onDismissRequest,
@@ -111,14 +117,19 @@ fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
                                 // Download AssistChip - opens immediately, downloads on-demand
                                 AssistChip(
                                     onClick = {
-                                        val fullPath =
-                                            "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                        val fullPath = if (library.sharedLinkUrl != null) {
+                                            // For shared links, use relative path
+                                            "${book.path}/$fileName.${format.lowercase()}"
+                                        } else {
+                                            "$libraryPath/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                        }
                                         val cleanFileName = fileName.substringAfterLast('/')
                                         openFileWithIntent(
                                             context,
                                             fullPath,
                                             cleanFileName,
-                                            format
+                                            format,
+                                            library.sharedLinkUrl
                                         )
                                     },
                                     modifier = Modifier.size(36.dp),
@@ -137,14 +148,19 @@ fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
                                 // Share AssistChip - opens immediately, downloads on-demand
                                 AssistChip(
                                     onClick = {
-                                        val fullPath =
-                                            "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                        val fullPath = if (library.sharedLinkUrl != null) {
+                                            // For shared links, use relative path
+                                            "${book.path}/$fileName.${format.lowercase()}"
+                                        } else {
+                                            "$libraryPath/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                        }
                                         val cleanFileName = fileName.substringAfterLast('/')
                                         sendFile(
                                             context,
                                             fullPath,
                                             cleanFileName,
-                                            format
+                                            format,
+                                            library.sharedLinkUrl
                                         )
                                     },
                                     modifier = Modifier.size(36.dp),
@@ -170,7 +186,7 @@ fun BookDetailsDialog(book: GetAllBookDetails, onDismissRequest: () -> Unit) {
                                                 scope.launch {
                                                     sendingToKoboFormat = format
                                                     val fullPath =
-                                                        "${SettingsHelper.getCalibreLibraryPath(context)}/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                                        "$libraryPath/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
                                                     val success = KoboSender.sendToKobo(
                                                         context,
                                                         fullPath
@@ -224,7 +240,8 @@ private fun openFileWithIntent(
         context: Context,
         dropboxPath: String,
         fileName: String,
-        extension: String
+        extension: String,
+        sharedLinkUrl: String?
 ) {
     try {
         // Better MimeType detection using Android standard MimeTypeMap
@@ -239,7 +256,8 @@ private fun openFileWithIntent(
             dropboxPath = dropboxPath,
             fileName = fileName,
             format = extension,
-            mimeType = mimeType
+            mimeType = mimeType,
+            sharedLinkUrl = sharedLinkUrl
         )
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -262,7 +280,8 @@ private fun sendFile(
         context: Context,
         dropboxPath: String,
         fileName: String,
-        format: String
+        format: String,
+        sharedLinkUrl: String?
 ) {
     try {
         // Try to detect a proper MIME type; fallback to a generic type to maximize available targets
@@ -275,7 +294,8 @@ private fun sendFile(
             dropboxPath = dropboxPath,
             fileName = fileName,
             format = format,
-            mimeType = mimeType
+            mimeType = mimeType,
+            sharedLinkUrl = sharedLinkUrl
         )
 
         val shareIntent = Intent(Intent.ACTION_SEND).apply {

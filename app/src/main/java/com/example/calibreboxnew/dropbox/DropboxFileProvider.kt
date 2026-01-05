@@ -34,7 +34,8 @@ class DropboxFileProvider : ContentProvider() {
             dropboxPath: String,
             fileName: String,
             format: String,
-            mimeType: String
+            mimeType: String,
+            sharedLinkUrl: String? = null
         ): Uri {
             return Uri.parse("content://$authority$AUTHORITY_SUFFIX")
                 .buildUpon()
@@ -42,6 +43,11 @@ class DropboxFileProvider : ContentProvider() {
                 .appendQueryParameter("fileName", fileName)
                 .appendQueryParameter("format", format)
                 .appendQueryParameter("mimeType", mimeType)
+                .apply {
+                    if (sharedLinkUrl != null) {
+                        appendQueryParameter("sharedLinkUrl", sharedLinkUrl)
+                    }
+                }
                 .build()
         }
     }
@@ -60,6 +66,7 @@ class DropboxFileProvider : ContentProvider() {
             ?: throw FileNotFoundException("Missing fileName parameter")
         val format = uri.getQueryParameter("format")
             ?: throw FileNotFoundException("Missing format parameter")
+        val sharedLinkUrl = uri.getQueryParameter("sharedLinkUrl")
 
         try {
             // Create cache directory
@@ -73,9 +80,16 @@ class DropboxFileProvider : ContentProvider() {
             // Download the file if it doesn't exist or is empty
             if (!tempFile.exists() || tempFile.length() == 0L) {
                 Log.d(TAG, "Downloading file from Dropbox: $dropboxPath")
+                if (sharedLinkUrl != null) {
+                    Log.d(TAG, "Using shared link: $sharedLinkUrl")
+                }
                 tempFile.outputStream().use { stream ->
                     runBlocking(Dispatchers.IO) {
-                        DropboxHelper.downloadFile(context, dropboxPath, stream)
+                        if (sharedLinkUrl != null) {
+                            DropboxHelper.downloadFileFromSharedLink(context, sharedLinkUrl, dropboxPath, stream)
+                        } else {
+                            DropboxHelper.downloadFile(context, dropboxPath, stream)
+                        }
                     }
                 }
                 Log.d(TAG, "Download complete: ${tempFile.length()} bytes")

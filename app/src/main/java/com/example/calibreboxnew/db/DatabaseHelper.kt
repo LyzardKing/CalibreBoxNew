@@ -14,9 +14,15 @@ object DatabaseHelper {
     private var driver: AndroidSqliteDriver? = null
     private var database: CalibreMetadata? = null
 
-    suspend fun init(context: Context, calibreLibraryPath: String, forceDownload: Boolean = false) {
+    suspend fun init(
+        context: Context, 
+        calibreLibraryPath: String, 
+        forceDownload: Boolean = false,
+        sharedLinkUrl: String? = null,
+        libraryId: String
+    ) {
         withContext(Dispatchers.IO) {
-            val dbFile = context.getDatabasePath("metadata.db")
+            val dbFile = context.getDatabasePath("metadata_$libraryId.db")
 
             val cleanPath = "/${calibreLibraryPath.trim('/')}/metadata.db".replace("//", "/")
             Log.d("DatabaseHelper", "Preparing to ensure local DB; remote path: '$cleanPath'")
@@ -28,7 +34,7 @@ object DatabaseHelper {
                     val remoteMeta = DropboxHelper.getFileMetadata(cleanPath)
                     if (remoteMeta != null) {
                         val remoteSize = remoteMeta.size
-                        val remoteTime = remoteMeta.serverModified?.time ?: 0L
+                        val remoteTime = remoteMeta.serverModified.time ?: 0L
                         val localSize = dbFile.length()
                         val localTime = if (dbFile.exists()) dbFile.lastModified() else 0L
 
@@ -54,16 +60,36 @@ object DatabaseHelper {
                 Log.d("DatabaseHelper", "Attempting to download metadata.db from Dropbox path: '$cleanPath'")
                 try {
                     dbFile.outputStream().use { outputStream ->
-                        DropboxHelper.downloadFile(context, cleanPath, outputStream)
+                        if (sharedLinkUrl != null) {
+                            Log.d("DatabaseHelper", "Using shared link: $sharedLinkUrl")
+                            DropboxHelper.downloadFileFromSharedLink(context, sharedLinkUrl, "metadata.db", outputStream)
+                        } else {
+                            DropboxHelper.downloadFile(context, cleanPath, outputStream)
+                        }
                     }
                     Log.d("DatabaseHelper", "Download complete. File size: ${dbFile.length()} bytes.")
                     if (dbFile.length() == 0L) {
                         Log.e("DatabaseHelper", "DOWNLOADED FILE IS EMPTY! The path '$cleanPath' is likely incorrect.")
-                        if (!dbFile.exists() || dbFile.length() == 0L) return@withContext
+                        throw Exception("Downloaded file is empty. The library path may be incorrect or you may not have access to this folder.")
                     }
                 } catch (e: Exception) {
                     Log.e("DatabaseHelper", "Failed to download metadata.db from path '$cleanPath'", e)
-                    if (!dbFile.exists() || dbFile.length() == 0L) return@withContext
+                    
+                    // Provide more specific error messages
+                    val errorMessage = when {
+                        e.message?.contains("not_found", ignoreCase = true) == true -> 
+                            "Library not found at path '$calibreLibraryPath'. Please check the path is correct."
+                        e.message?.contains("insufficient_permissions", ignoreCase = true) == true -> 
+                            "You don't have permission to access this library. Please ask the owner to share it with you."
+                        e.message?.contains("access_error", ignoreCase = true) == true -> 
+                            "Unable to access shared library. Make sure you've been granted access."
+                        sharedLinkUrl != null -> 
+                            "Failed to access shared library. The link may be invalid or expired."
+                        else -> 
+                            "Failed to download library database. Please check your connection and library path."
+                    }
+                    
+                    throw Exception(errorMessage, e)
                 }
             } else {
                 Log.d("DatabaseHelper", "Using existing local metadata.db (no download performed).")
@@ -86,7 +112,7 @@ object DatabaseHelper {
             val newDriver = AndroidSqliteDriver(
                 schema = CalibreMetadata.Schema,
                 context = context,
-                name = "metadata.db",
+                name = "metadata_$libraryId.db",
                 callback = callback
             )
             driver = newDriver
@@ -95,27 +121,39 @@ object DatabaseHelper {
         }
     }
 
-    suspend fun reDownloadDatabase(context: Context, calibreLibraryPath: String) {
+    suspend fun reDownloadDatabase(context: Context, calibreLibraryPath: String, sharedLinkUrl: String? = null, libraryId: String) {
         Log.d("DatabaseHelper", "Re-downloading database.")
-        clearDatabase(context)
+        clearDatabase(context, libraryId)
         // Re-initialize the database, which will trigger a new download
-        init(context, calibreLibraryPath)
+        init(context, calibreLibraryPath, sharedLinkUrl = sharedLinkUrl, libraryId = libraryId)
     }
 
-    suspend fun clearDatabase(context: Context) {
+    suspend fun clearDatabase(context: Context, libraryId: String? = null) {
         withContext(Dispatchers.IO) {
             // Close the existing database connection if it's open
             driver?.close()
             driver = null
             database = null
 
-            // Delete the old database file
-            val dbFile = context.getDatabasePath("metadata.db")
-            if (dbFile.exists()) {
-                if (dbFile.delete()) {
-                    Log.d("DatabaseHelper", "Existing database file deleted.")
-                } else {
-                    Log.e("DatabaseHelper", "Failed to delete existing database file.")
+            // If libraryId is null, delete all library databases
+            if (libraryId == null) {
+                val dbDir = context.getDatabasePath("dummy").parentFile
+                dbDir?.listFiles { file -> file.name.startsWith("metadata_") && file.name.endsWith(".db") }?.forEach { file ->
+                    if (file.delete()) {
+                        Log.d("DatabaseHelper", "Deleted database file: ${file.name}")
+                    } else {
+                        Log.e("DatabaseHelper", "Failed to delete database file: ${file.name}")
+                    }
+                }
+            } else {
+                // Delete the specific library database file
+                val dbFile = context.getDatabasePath("metadata_$libraryId.db")
+                if (dbFile.exists()) {
+                    if (dbFile.delete()) {
+                        Log.d("DatabaseHelper", "Existing database file deleted.")
+                    } else {
+                        Log.e("DatabaseHelper", "Failed to delete existing database file.")
+                    }
                 }
             }
         }
