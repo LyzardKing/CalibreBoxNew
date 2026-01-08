@@ -20,8 +20,28 @@ jobs:
         run: chmod +x ./gradlew
       - name: Build Release APK
         run: ./gradlew assembleRelease
-      - name: Upload APK
-        uses: actions/upload-artifact@v6
+      - uses: NoCrypt/sign-android@main
+        name: Sign app APK
+        id: sign_app
         with:
-          name: CalibreBoxNew
-          path: app/build/outputs/apk/release/app-release.apk
+          releaseDir: app/build/outputs/apk/release
+          signingKey: ${{ secrets.ANDROID_SIGNING_KEY }}
+          keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # - name: Upload APK
+      #   uses: actions/upload-artifact@v6
+      #   with:
+      #     name: CalibreBoxNew
+      #     path: app/build/outputs/apk/release/app-release.apk
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+          tag_name: v${{ env.APP_VERSION }}
+          name: ${{ env.COMMIT_MESSAGE }}
+          fail_on_unmatched_files: true
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
