@@ -1,4 +1,4 @@
-package com.example.calibreboxnew.ui
+package com.example.calibreboxnew.ui.library
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,8 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.calibreboxnew.SettingsHelper
 import com.example.calibreboxnew.model.Library
-import com.example.calibreboxnew.util.DropboxUrlParser
-import java.util.UUID
+import com.example.calibreboxnew.utils.DropboxUrlParser
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

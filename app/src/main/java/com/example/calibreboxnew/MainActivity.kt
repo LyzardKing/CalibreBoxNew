@@ -1,6 +1,6 @@
 package com.example.calibreboxnew
 
-import CacheCleanupWorker
+import com.example.calibreboxnew.cache.CacheCleanupWorker
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -37,20 +37,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.dropbox.core.android.Auth
+import com.example.calibreboxnew.cache.CoverCacheHelper
+import com.example.calibreboxnew.cache.CoverCacheWorker
 import com.example.calibreboxnew.db.DatabaseHelper
 import com.example.calibreboxnew.db.GetAllBookDetails
 import com.example.calibreboxnew.dropbox.DropboxHelper
 import com.example.calibreboxnew.model.Library
-import com.example.calibreboxnew.ui.AddLibraryDialog
-import com.example.calibreboxnew.ui.BookDetailsDialog
-import com.example.calibreboxnew.ui.FileBrowser
-import com.example.calibreboxnew.ui.LibraryManagementSheet
+import com.example.calibreboxnew.model.SortOrder
+import com.example.calibreboxnew.ui.library.AddLibraryDialog
+import com.example.calibreboxnew.ui.book.BookDetailsDialog
+import com.example.calibreboxnew.ui.browser.FileBrowser
+import com.example.calibreboxnew.ui.library.LibraryManagementSheet
 import com.example.calibreboxnew.ui.SearchBar
 import com.example.calibreboxnew.ui.theme.CalibreBoxNewTheme
 import com.example.calibreboxnew.utils.normalizeForSearch
@@ -151,7 +153,7 @@ class MainActivity : ComponentActivity() {
         var isRefreshing by remember { mutableStateOf(false) }
         var libraryError by remember { mutableStateOf<String?>(null) }
         var allBooks by remember { mutableStateOf<List<GetAllBookDetails>>(emptyList()) }
-        var refreshTrigger by remember { mutableStateOf(0) }
+        var refreshTrigger by remember { mutableIntStateOf(0) }
         
         // Load books when library changes or refresh is triggered
         LaunchedEffect(currentLibrary?.id, currentPath, refreshTrigger) {

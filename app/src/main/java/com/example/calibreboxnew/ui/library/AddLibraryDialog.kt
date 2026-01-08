@@ -1,4 +1,4 @@
-package com.example.calibreboxnew.ui
+package com.example.calibreboxnew.ui.library
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -7,9 +7,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.calibreboxnew.db.DatabaseHelper
-import com.example.calibreboxnew.dropbox.DropboxHelper
 import com.example.calibreboxnew.model.Library
-import com.example.calibreboxnew.util.DropboxUrlParser
+import com.example.calibreboxnew.utils.DropboxUrlParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,7 +121,7 @@ fun AddLibraryDialog(
                     if (DropboxUrlParser.isSharedLink(extractedPath)) {
                         sharedLink = extractedPath
                         // Try to get the name from metadata
-                        resolvedName = if (trimmedName.isEmpty()) "Shared Library" else trimmedName
+                        resolvedName = trimmedName.ifEmpty { "Shared Library" }
                         // Use a placeholder path - the actual access will be via shared link
                         extractedPath = "/" + resolvedName.replace(" ", "_")
                     }

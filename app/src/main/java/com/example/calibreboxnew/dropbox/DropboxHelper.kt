@@ -119,13 +119,6 @@ object DropboxHelper {
         Log.d("DropboxHelper", "Cleared credential and client.")
     }
 
-    /**
-     * Check if a valid credential is stored.
-     */
-    fun hasStoredCredential(context: Context): Boolean {
-        return getCredential(context) != null
-    }
-
     suspend fun listFolder(path: String): ListFolderResult? {
         return withContext(Dispatchers.IO) {
             client?.files()?.listFolder(path)
@@ -169,47 +162,14 @@ object DropboxHelper {
         return withContext(Dispatchers.IO) {
             try {
                 val meta = client?.files()?.getMetadata(path)
-                if (meta is FileMetadata) meta else null
+                meta as? FileMetadata
             } catch (e: Exception) {
                 Log.w("DropboxHelper", "Failed to get metadata for '$path'", e)
                 null
             }
         }
     }
-    
-    /**
-     * Resolve a shared link to get the folder path and metadata.
-     * Returns a Pair of (path, name) or null if resolution fails.
-     * 
-     * @param url The shared link URL (e.g., https://www.dropbox.com/scl/fo/...)
-     * @return Pair<String, String>? where first is the path (for use with listFolder/download)
-     *         and second is the display name
-     */
-    suspend fun resolveSharedLink(url: String): Pair<String, String>? {
-        return withContext(Dispatchers.IO) {
-            try {
-                // For shared links, try to get metadata with the link
-                val metadata = client?.sharing()?.getSharedLinkMetadata(url)
-                
-                if (metadata != null) {
-                    // Extract path and name from the metadata
-                    val path = metadata.pathLower ?: "/" + metadata.name
-                    val name = metadata.name
-                    Log.d("DropboxHelper", "Resolved shared link: path=$path, name=$name")
-                    Pair(path, name)
-                } else {
-                    Log.w("DropboxHelper", "Could not resolve shared link metadata")
-                    null
-                }
-            } catch (e: Exception) {
-                Log.e("DropboxHelper", "Failed to resolve shared link: $url", e)
-                Log.e("DropboxHelper", "Exception type: ${e.javaClass.simpleName}, message: ${e.message}")
-                // If the shared link doesn't have a path (not yet mounted), return null
-                null
-            }
-        }
-    }
-    
+
     /**
      * Download a file using a shared link URL.
      * This allows accessing shared files without the user adding them to their Dropbox.
@@ -264,29 +224,5 @@ object DropboxHelper {
             }
         }
     }
-    
-    /**
-     * Get file metadata from a shared link.
-     * 
-     * @param sharedLink The shared link URL
-     * @param path Path within the shared folder
-     * @return Metadata if successful, null otherwise
-     */
-    suspend fun getFileMetadataFromSharedLink(
-        sharedLink: String,
-        path: String
-    ): com.dropbox.core.v2.sharing.SharedLinkMetadata? {
-        return withContext(Dispatchers.IO) {
-            try {
-                val fullPath = if (path.startsWith("/")) path else "/$path"
-                client?.sharing()
-                    ?.getSharedLinkMetadataBuilder(sharedLink)
-                    ?.withPath(fullPath)
-                    ?.start()
-            } catch (e: Exception) {
-                Log.w("DropboxHelper", "Failed to get metadata from shared link for '$path'", e)
-                null
-            }
-        }
-    }
+
 }

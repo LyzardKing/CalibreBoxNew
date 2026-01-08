@@ -1,4 +1,4 @@
-package com.example.calibreboxnew
+package com.example.calibreboxnew.model
 
 enum class SortOrder {
     TITLE,       // Sort by book title

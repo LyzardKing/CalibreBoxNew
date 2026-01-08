@@ -1,7 +1,8 @@
-package com.example.calibreboxnew.util
+package com.example.calibreboxnew.utils
 
 import android.net.Uri
 import android.util.Log
+import androidx.core.net.toUri
 
 /**
  * Utility for parsing Dropbox shared URLs and extracting folder paths.
@@ -36,7 +37,7 @@ object DropboxUrlParser {
         }
         
         try {
-            val uri = Uri.parse(trimmed)
+            val uri = trimmed.toUri()
             val host = uri.host ?: return null
             
             // Check if it's a Dropbox URL
@@ -87,7 +88,7 @@ object DropboxUrlParser {
         }
         
         try {
-            val uri = Uri.parse(trimmed)
+            val uri = trimmed.toUri()
             val host = uri.host ?: return false
             val path = uri.path ?: return false
             

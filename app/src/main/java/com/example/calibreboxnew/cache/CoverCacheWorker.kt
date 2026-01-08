@@ -1,6 +1,6 @@
-package com.example.calibreboxnew
+package com.example.calibreboxnew.cache
 
-// In app/src/main/java/com/example/calibreboxnew/CoverCacheWorker.kt
+// In app/src/main/java/com/example/calibreboxnew/cache/CoverCacheWorker.kt
 
 
 import android.content.Context
@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.example.calibreboxnew.SettingsHelper
 import com.example.calibreboxnew.db.DatabaseHelper
 import com.example.calibreboxnew.dropbox.DropboxHelper
 import kotlinx.coroutines.Dispatchers

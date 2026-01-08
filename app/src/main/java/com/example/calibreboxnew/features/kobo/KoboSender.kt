@@ -1,6 +1,5 @@
-package com.example.calibreboxnew
+package com.example.calibreboxnew.features.kobo
 
-import android.content.Context
 import android.util.Log
 import com.example.calibreboxnew.dropbox.DropboxHelper
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +12,6 @@ object KoboSender {
      * Returns true on success. This requires the Dropbox client to be initialized.
      */
     suspend fun sendToKobo(
-        context: Context,
         dropboxPath: String
     ): Boolean {
         return withContext(Dispatchers.IO) {

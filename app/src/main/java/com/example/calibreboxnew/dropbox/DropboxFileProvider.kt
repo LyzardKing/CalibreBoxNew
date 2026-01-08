@@ -9,7 +9,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
-import com.example.calibreboxnew.dropbox.DropboxHelper
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -37,7 +37,7 @@ class DropboxFileProvider : ContentProvider() {
             mimeType: String,
             sharedLinkUrl: String? = null
         ): Uri {
-            return Uri.parse("content://$authority$AUTHORITY_SUFFIX")
+            return "content://$authority$AUTHORITY_SUFFIX".toUri()
                 .buildUpon()
                 .appendQueryParameter("path", dropboxPath)
                 .appendQueryParameter("fileName", fileName)

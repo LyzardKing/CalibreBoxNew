@@ -1,4 +1,4 @@
-package com.example.calibreboxnew.ui
+package com.example.calibreboxnew.ui.book
 
 import android.content.ClipData
 import android.content.Context
@@ -25,10 +25,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.calibreboxnew.model.Library
 import com.example.calibreboxnew.dropbox.DropboxFileProvider
-import com.example.calibreboxnew.SettingsHelper
 import com.example.calibreboxnew.db.GetAllBookDetails
 import com.example.calibreboxnew.dropbox.DropboxHelper
-import com.example.calibreboxnew.KoboSender
+import com.example.calibreboxnew.features.kobo.KoboSender
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -188,7 +187,6 @@ fun BookDetailsDialog(
                                                     val fullPath =
                                                         "$libraryPath/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
                                                     val success = KoboSender.sendToKobo(
-                                                        context,
                                                         fullPath
                                                     )
                                                     withContext(Dispatchers.Main) {
