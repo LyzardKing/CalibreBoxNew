@@ -8,6 +8,8 @@ on:
 jobs:
   Gradle:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: checkout code
         uses: actions/checkout@v6
@@ -39,7 +41,7 @@ jobs:
         with:
           files: |
             app/build/outputs/apk/release/app-release.apk
-          tag_name: v${{ env.APP_VERSION }}
+          tag_name: ${{ github.ref_name }}
           name: ${{ env.COMMIT_MESSAGE }}
           fail_on_unmatched_files: true
           draft: true
