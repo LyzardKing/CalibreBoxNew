@@ -18,6 +18,7 @@ jobs:
         with:
           java-version: 17
           distribution: "adopt"
+      - run: echo 'dropbox.key=${{ secrets.DROPBOX_KEY }}' > ./local.properties
       - name: Make Gradle executable
         run: chmod +x ./gradlew
       - name: Build Release APK
