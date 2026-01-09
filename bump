@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# bump - simple version bump script for CalibreBoxNew
+#
+# Usage:
+#   ./bump 1.2.3
+#
+# Behavior:
+#  - Updates `app/build.gradle.kts` replacing `versionName = "..."` and `versionCode = N`
+#  - Computes a numeric versionCode from semver: major*10000 + minor*100 + patch
+#    - If computed versionCode is <= current versionCode, the script will use current+1
+#  - Builds the project with `./gradlew assembleRelease`
+#  - Commits the change, pushes to the current branch, tags with v<version>, and pushes the tag
+#
+# Notes:
+#  - The script requires a clean git working tree (no uncommitted changes).
+#  - Run this from the repository root.
+
+APP_BUILD_FILE="app/build.gradle.kts"
+GRADLEW="./gradlew"
+BUILD_TASK="assembleRelease"
+
+show_usage() {
+  cat <<EOF
+Usage: $(basename "$0") <semver>
+
+Examples:
+  $(basename "$0") 1.0.2
+
+This will:
+ - update versionName/versionCode in ${APP_BUILD_FILE}
+ - run ${GRADLEW} ${BUILD_TASK}
+ - commit, push, tag (v<semver>) and push the tag
+EOF
+}
+
+if [ $# -ne 1 ]; then
+  show_usage
+  exit 2
+fi
+
+NEW_VERSION="$1"
+
+# Basic semver validation (major.minor.patch)
+if ! [[ "$NEW_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+  echo "Error: version must be MAJOR.MINOR.PATCH (e.g. 1.2.3)"
+  exit 2
+fi
+
+MAJOR="${BASH_REMATCH[1]}"
+MINOR="${BASH_REMATCH[2]}"
+PATCH="${BASH_REMATCH[3]}"
+
+# Ensure repo root and files exist
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: not inside a git repository"
+  exit 1
+fi
+
+GIT_ROOT="$(git rev-parse --show-toplevel)"
+cd "$GIT_ROOT"
+
+if [ ! -f "$APP_BUILD_FILE" ]; then
+  echo "Error: cannot find ${APP_BUILD_FILE} in repository root (${GIT_ROOT})"
+  exit 1
+fi
+
+# Ensure clean working tree
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Error: working tree has uncommitted changes. Commit or stash them before running this script."
+  git status --porcelain
+  exit 1
+fi
+
+echo "Preparing to bump project version to ${NEW_VERSION}..."
+
+# Read current versionName and versionCode (best-effort)
+current_version_name="$(sed -nE 's/.*versionName[[:space:]]*=[[:space:]]*"(.*)".*/\1/p' "$APP_BUILD_FILE" | head -n1 || true)"
+current_version_code="$(sed -nE 's/.*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' "$APP_BUILD_FILE" | head -n1 || true)"
+
+if [ -z "$current_version_code" ]; then
+  echo "Warning: could not detect current versionCode; assuming 0"
+  current_version_code=0
+fi
+if [ -z "$current_version_name" ]; then
+  echo "Warning: could not detect current versionName"
+  current_version_name=""
+fi
+
+echo "Current versionName: ${current_version_name:-<none>}"
+echo "Current versionCode: ${current_version_code}"
+
+# Compute new versionCode from semver: major*10000 + minor*100 + patch
+computed_code=$(( MAJOR * 10000 + MINOR * 100 + PATCH ))
+new_version_code="$computed_code"
+
+# Ensure monotonic increase
+if [ "$new_version_code" -le "$current_version_code" ]; then
+  new_version_code=$(( current_version_code + 1 ))
+  echo "Computed code ${computed_code} <= current (${current_version_code}); using ${new_version_code} instead to ensure monotonic increase."
+else
+  echo "Computed new versionCode: ${new_version_code}"
+fi
+
+# Backup original file
+bak="$(mktemp "/tmp/$(basename "$APP_BUILD_FILE").bak.XXXX")"
+cp "$APP_BUILD_FILE" "$bak"
+echo "Backup saved to ${bak}"
+
+# Prepare patched file
+tmp="$(mktemp "/tmp/$(basename "$APP_BUILD_FILE").tmp.XXXX")"
+
+awk -v nv="$NEW_VERSION" -v nc="$new_version_code" '
+{
+  if ($0 ~ /versionName[[:space:]]*=[[:space:]]*".*"/) {
+    sub(/versionName[[:space:]]*=[[:space:]]*".*"/, "versionName = \"" nv "\"")
+    print
+    next
+  }
+  if ($0 ~ /versionCode[[:space:]]*=[[:space:]]*[0-9]+/) {
+    sub(/versionCode[[:space:]]*=[[:space:]]*[0-9]+/, "versionCode = " nc)
+    print
+    next
+  }
+  print
+}
+' "$APP_BUILD_FILE" > "$tmp"
+
+# Validate substitution
+if ! grep -q "versionName[[:space:]]*=[[:space:]]*\"$NEW_VERSION\"" "$tmp"; then
+  echo "Error: failed to update versionName in ${APP_BUILD_FILE}. Restoring backup."
+  mv "$bak" "$APP_BUILD_FILE"
+  rm -f "$tmp"
+  exit 1
+fi
+
+mv "$tmp" "$APP_BUILD_FILE"
+echo "Patched ${APP_BUILD_FILE}: versionName=${NEW_VERSION}, versionCode=${new_version_code}"
+
+# Ensure gradlew executable
+if [ ! -x "$GRADLEW" ] && [ -f "$GRADLEW" ]; then
+  chmod +x "$GRADLEW" || true
+fi
+
+# Build fixed assembleRelease
+echo "Building project with ${GRADLEW} ${BUILD_TASK} ..."
+if ! $GRADLEW "$BUILD_TASK"; then
+  echo "Build failed. Restoring original file and exiting."
+  mv "$bak" "$APP_BUILD_FILE"
+  exit 1
+fi
+echo "Build succeeded."
+
+# Commit and push
+git add "$APP_BUILD_FILE"
+commit_msg="Bump version to ${NEW_VERSION} (code ${new_version_code})"
+git commit -m "$commit_msg"
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+echo "Pushing commit to origin/${branch} ..."
+git push origin "$branch"
+
+# Tag and push
+tag="v${NEW_VERSION}"
+if git rev-parse "$tag" >/dev/null 2>&1; then
+  echo "Tag ${tag} already exists locally. Removing and recreating."
+  git tag -d "$tag"
+fi
+git tag -a "$tag" -m "Release ${NEW_VERSION}"
+git push origin "$tag"
+
+echo "Done: bumped to ${NEW_VERSION} (code ${new_version_code}), built, committed, pushed, and tagged ${tag}."
