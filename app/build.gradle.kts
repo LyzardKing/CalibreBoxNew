@@ -31,8 +31,8 @@ android {
         applicationId = "com.example.calibreboxnew2"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10003
-        versionName = "1.0.3"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // This makes the key available in your Manifest

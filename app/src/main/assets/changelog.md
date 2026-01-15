@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.1.0 - 2026-01-15
+- Add changelog reader and popup (7821b7b)
+
 ## v1.0.2 - 2026-01-15
 - Add separate Download and  Open buttons. (acc6075)
 
