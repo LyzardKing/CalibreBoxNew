@@ -45,6 +45,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ env.COMMIT_MESSAGE }}
           fail_on_unmatched_files: true
-          draft: true
+          draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
