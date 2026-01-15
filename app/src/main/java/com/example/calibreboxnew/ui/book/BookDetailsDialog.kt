@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,8 +31,12 @@ import com.example.calibreboxnew.db.GetAllBookDetails
 import com.example.calibreboxnew.dropbox.DropboxHelper
 import com.example.calibreboxnew.features.kobo.KoboSender
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.content.ActivityNotFoundException
+import android.content.ContentValues
+import android.provider.MediaStore
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -113,7 +119,7 @@ fun BookDetailsDialog(
                                     modifier = Modifier.weight(1f)
                                 )
 
-                                // Download AssistChip - opens immediately, downloads on-demand
+                                // Open AssistChip - open with an app (downloads on demand via provider)
                                 AssistChip(
                                     onClick = {
                                         val fullPath = if (library.sharedLinkUrl != null) {
@@ -135,8 +141,40 @@ fun BookDetailsDialog(
                                     label = {},
                                     leadingIcon = {
                                         Icon(
+                                            Icons.Default.OpenInNew,
+                                            contentDescription = "Open",
+                                            Modifier.size(18.dp)
+                                        )
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Download AssistChip - explicitly save to Downloads
+                                AssistChip(
+                                    onClick = {
+                                        val fullPath = if (library.sharedLinkUrl != null) {
+                                            "${book.path}/$fileName.${format.lowercase()}"
+                                        } else {
+                                            "$libraryPath/${book.path}/$fileName.${format.lowercase()}".replace("//", "/")
+                                        }
+                                        val cleanFileName = fileName.substringAfterLast('/')
+                                        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(format.lowercase()) ?: "*/*"
+                                        saveFileToDownloads(
+                                            context,
+                                            fullPath,
+                                            cleanFileName,
+                                            format,
+                                            library.sharedLinkUrl,
+                                            mimeType
+                                        )
+                                    },
+                                    modifier = Modifier.size(36.dp),
+                                    label = {},
+                                    leadingIcon = {
+                                        Icon(
                                             Icons.Default.Download,
-                                            contentDescription = null,
+                                            contentDescription = "Download",
                                             Modifier.size(18.dp)
                                         )
                                     }
@@ -266,11 +304,70 @@ private fun openFileWithIntent(
 
         val chooser = Intent.createChooser(intent, "Read with...")
         chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(chooser)
+        try {
+            context.startActivity(chooser)
+        } catch (e: ActivityNotFoundException) {
+            Log.w("BookDetails", "No app found to open file, saving to Downloads instead: ${e.message}")
+            saveFileToDownloads(context, dropboxPath, fileName, extension, sharedLinkUrl, mimeType)
+        } catch (e: Exception) {
+            Log.e("BookDetails", "Error launching chooser: ${e.message}")
+            Toast.makeText(context, "Could not open file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        }
     } catch (e: Exception) {
         Log.e("BookDetails", "Error opening file: ${e.message}")
         Toast.makeText(context, "Could not open file: ${e.localizedMessage}", Toast.LENGTH_LONG)
                 .show()
+    }
+}
+
+private fun saveFileToDownloads(
+        context: Context,
+        dropboxPath: String,
+        fileName: String,
+        extension: String,
+        sharedLinkUrl: String?,
+        mimeType: String
+) {
+    GlobalScope.launch(Dispatchers.IO) {
+        try {
+            val displayName = "${fileName}.${extension.lowercase()}"
+            val resolver = context.contentResolver
+
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val uri = resolver.insert(collection, values)
+
+            if (uri == null) {
+                throw Exception("Failed to create download entry")
+            }
+
+            resolver.openOutputStream(uri).use { out ->
+                if (out == null) throw Exception("Could not open output stream for Downloads")
+                if (sharedLinkUrl != null) {
+                    DropboxHelper.downloadFileFromSharedLink(context, sharedLinkUrl, dropboxPath, out)
+                } else {
+                    DropboxHelper.downloadFile(context, dropboxPath, out)
+                }
+            }
+
+            // Mark as not pending
+            val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+            resolver.update(uri, done, null, null)
+
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Saved to Downloads: $displayName", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Log.e("BookDetails", "Failed to save to Downloads: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Could not save file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 }
 
